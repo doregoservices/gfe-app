@@ -197,3 +197,14 @@ Dossier « ANCIEN DOCS » : trois fichiers ne peuvent pas être supprimés depui
 - `stock-universel/`, `gfe-compta/`, `bulletins/`, `jcharno-paie/`, `dgi-github/` : sources locales de l'entreprise.
 - Dossier « réseau compta Connect » : **introuvable** sur le disque et sur Drive lors de la rédaction. À fournir par le client.
 - FKS Industrie : sources dans `bulletins/fks/` et `dgi-github/` (annexes ITS, bulletins de référence).
+
+---
+
+## 12. Dépôts GitHub existants (compte doregoservices)
+
+Voir `MESSAGE_NOUVELLE_SESSION.md`, section 6, pour le tableau complet.
+
+- **compta-connect** (public) : « réseau compta Connect ». Plateforme de cotisations, membres, formations, offres, espace membre. Base la plus proche de l'application visée.
+- **reference-comptabilite-ivoirienne** (privé) : référence paie, ITS, RICF, FDFP, TVA, EDI, SYSCOHADA. Source de vérité pour les calculs.
+- **dgi-modeles**, **outil-journaux-sage**, **fks-industrie**, **fks-industrie-propre** (ne pas modifier).
+- **dossier-twal** : dossier personnel d'une autre candidature. Hors projet.
