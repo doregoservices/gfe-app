@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFE — Stock</title>
+<style>
+  :root{--nuit:#1B1A3C;--rouge:#DC2529;--noir:#000;--blanc:#FFF}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Arial,Calibri,sans-serif;background:var(--blanc);color:var(--noir)}
+  header{background:var(--nuit);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  header img{height:48px;width:auto}
+  header .sortie{background:none;color:#fff;border:1px solid #fff;padding:7px 12px;font-size:13px;width:auto;margin:0}
+  main{max-width:960px;margin:0 auto;padding:28px 16px}
+  h1{font-family:Georgia,'Times New Roman',serif;color:var(--nuit);font-size:24px;margin:0 0 4px}
+  h2{font-family:Georgia,'Times New Roman',serif;color:var(--nuit);font-size:17px;margin:28px 0 10px;border-bottom:2px solid var(--nuit);padding-bottom:4px}
+  p.sous{margin:0 0 18px;color:#444;font-size:14px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{background:var(--nuit);color:#fff;text-align:left;padding:9px 10px;font-weight:bold}
+  td{padding:9px 10px;border-bottom:1px solid #e3e3ea}
+  td.num,th.num{text-align:right}
+  tr.alerte td{color:var(--rouge);font-weight:bold}
+  .badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:12px;background:var(--rouge);color:#fff;margin-left:6px}
+  form.grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end}
+  label{display:block;font-size:13px;color:var(--nuit);font-weight:bold;margin-bottom:4px}
+  input,select{width:100%;padding:9px 10px;border:1px solid #bfc0cc;border-radius:4px;font-size:14px;font-family:inherit;background:#fff}
+  button{padding:10px 16px;border:0;border-radius:4px;background:var(--nuit);color:#fff;font-weight:bold;font-size:14px;cursor:pointer}
+  button:hover{background:#2b2a5a}
+  .msg{font-size:14px;margin-top:10px;min-height:18px}
+  .msg.ok{color:#1d6b3a} .msg.ko{color:var(--rouge)}
+  .carte{background:#fff;border-top:4px solid var(--nuit);box-shadow:0 2px 14px rgba(27,26,60,.10);padding:18px;margin-top:10px}
+  .zone-connexion{max-width:380px;margin:60px auto;background:#fff;border-top:4px solid var(--nuit);box-shadow:0 2px 14px rgba(27,26,60,.12);padding:30px}
+  .vide{color:#666;font-size:14px;padding:10px 0}
+</style>
+</head>
+<body>
+<header>
+  <img src="charte/p2_img16.png" alt="Global First Engineering">
+  <button class="sortie" id="deconnexion" style="display:none">Se déconnecter</button>
+</header>
+
+<div id="connexion" class="zone-connexion" style="display:none">
+  <h1>Connexion</h1>
+  <p class="sous">Accès au module stock.</p>
+  <form id="formulaire">
+    <label for="email">Adresse e-mail</label>
+    <input id="email" type="email" autocomplete="username" required>
+    <label for="mdp" style="margin-top:12px">Mot de passe</label>
+    <input id="mdp" type="password" autocomplete="current-password" required>
+    <button id="bouton" type="submit" style="margin-top:16px;width:100%">Se connecter</button>
+    <div class="msg ko" id="erreur"></div>
+  </form>
+</div>
+
+<main id="appli" style="display:none">
+  <h1 id="titre">Stock</h1>
+  <p class="sous" id="sous"></p>
+
+  <h2>Stock actuel</h2>
+  <div class="carte" style="padding:0;overflow-x:auto">
+    <table>
+      <thead><tr><th>Désignation</th><th>Unité</th><th class="num">Stock</th><th class="num">Seuil</th></tr></thead>
+      <tbody id="tbl-stock"></tbody>
+    </table>
+  </div>
+
+  <h2>Nouveau mouvement</h2>
+  <div class="carte">
+    <form id="form-mvt" class="grille">
+      <div><label for="mvt-produit">Produit</label><select id="mvt-produit" required></select></div>
+      <div><label for="mvt-type">Type</label>
+        <select id="mvt-type"><option value="entree">Entrée</option><option value="sortie">Sortie</option><option value="ajustement">Ajustement (inventaire)</option></select></div>
+      <div><label for="mvt-qte">Quantité</label><input id="mvt-qte" type="number" min="0" step="any" required></div>
+      <div><label for="mvt-note">Note</label><input id="mvt-note" type="text" maxlength="200"></div>
+      <div><button type="submit">Enregistrer</button></div>
+    </form>
+    <div class="msg" id="msg-mvt"></div>
+  </div>
+
+  <h2>Nouveau produit</h2>
+  <div class="carte">
+    <form id="form-prod" class="grille">
+      <div><label for="prod-nom">Désignation</label><input id="prod-nom" type="text" maxlength="120" required></div>
+      <div><label for="prod-unite">Unité</label><input id="prod-unite" type="text" value="unité" maxlength="20"></div>
+      <div><label for="prod-seuil">Seuil d'alerte</label><input id="prod-seuil" type="number" min="0" step="any" value="0"></div>
+      <div><button type="submit">Ajouter</button></div>
+    </form>
+    <div class="msg" id="msg-prod"></div>
+  </div>
+</main>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = "https://ewcxndlelagtrlshadlj.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3Y3huZGxlbGFndHJsc2hhZGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMjU4NzYsImV4cCI6MjEwMjgwMTg3Nn0.56ORPMKuu-RcbcqVTLuKC3gylOw5jQmXgIb1adXbjCg";
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "gfe" } });
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let entrepriseId = params.get("e");
+
+function echappe(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function montre(el, texte, ok){ el.textContent = texte; el.className = "msg " + (ok ? "ok" : "ko"); }
+
+async function charger() {
+  if (!entrepriseId) { $("sous").textContent = "Entreprise non précisée."; return; }
+  const { data: ent } = await sb.from("entreprises").select("nom").eq("id", entrepriseId).single();
+  $("titre").textContent = "Stock — " + (ent?.nom || "");
+  const { data: stock, error } = await sb.from("stock_actuel").select("*").eq("entreprise_id", entrepriseId).order("designation");
+  const tbody = $("tbl-stock"); tbody.innerHTML = "";
+  const sel = $("mvt-produit"); sel.innerHTML = "";
+  if (error) { tbody.innerHTML = '<tr><td colspan="4">Erreur de chargement.</td></tr>'; return; }
+  if (!stock.length) { tbody.innerHTML = '<tr><td colspan="4" class="vide">Aucun produit. Ajoutez-en un ci-dessous.</td></tr>'; }
+  for (const p of stock) {
+    const alerte = Number(p.stock) <= Number(p.seuil);
+    const tr = document.createElement("tr");
+    if (alerte) tr.className = "alerte";
+    tr.innerHTML = `<td>${echappe(p.designation)}${alerte ? '<span class="badge">' + (Number(p.stock) === 0 ? "Rupture" : "Stock faible") + '</span>' : ""}</td>
+      <td>${echappe(p.unite)}</td><td class="num">${Number(p.stock).toLocaleString("fr-FR")}</td><td class="num">${Number(p.seuil).toLocaleString("fr-FR")}</td>`;
+    tbody.appendChild(tr);
+    const o = document.createElement("option"); o.value = p.produit_id; o.textContent = p.designation; sel.appendChild(o);
+  }
+}
+
+async function afficher(session) {
+  $("connexion").style.display = "none";
+  $("appli").style.display = "block";
+  $("deconnexion").style.display = "inline-block";
+  $("sous").textContent = "Connecté : " + (session.user.email || "");
+  await charger();
+}
+
+$("formulaire").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("bouton").disabled = true;
+  const { data, error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("mdp").value });
+  $("bouton").disabled = false;
+  if (error) { $("erreur").textContent = "E-mail ou mot de passe incorrect."; return; }
+  $("mdp").value = "";
+  afficher(data.session);
+});
+
+$("form-mvt").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from("mouvements_stock").insert({
+    entreprise_id: entrepriseId, produit_id: $("mvt-produit").value, type: $("mvt-type").value,
+    quantite: Number($("mvt-qte").value), note: $("mvt-note").value.trim() || null, created_by: user.id,
+  });
+  if (error) { montre($("msg-mvt"), "Enregistrement refusé : " + error.message, false); return; }
+  montre($("msg-mvt"), "Mouvement enregistré.", true);
+  $("mvt-qte").value = ""; $("mvt-note").value = "";
+  await charger();
+});
+
+$("form-prod").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const { error } = await sb.from("produits").insert({
+    entreprise_id: entrepriseId, designation: $("prod-nom").value.trim(),
+    unite: $("prod-unite").value.trim() || "unité", seuil: Number($("prod-seuil").value || 0),
+  });
+  if (error) { montre($("msg-prod"), "Ajout refusé : " + error.message, false); return; }
+  montre($("msg-prod"), "Produit ajouté.", true);
+  $("prod-nom").value = ""; $("prod-seuil").value = "0";
+  await charger();
+});
+
+$("deconnexion").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
+
+sb.auth.getSession().then(({ data }) => {
+  if (data.session) afficher(data.session); else $("connexion").style.display = "block";
+});
+</script>
+</body>
+</html>

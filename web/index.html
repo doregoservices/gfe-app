@@ -75,7 +75,11 @@ async function afficherEspace(session) {
   if (!data.length) { liste.innerHTML = "<li>Aucune entreprise rattachée à votre compte.</li>"; return; }
   for (const e of data) {
     const li = document.createElement("li");
-    li.textContent = e.nom;
+    const a = document.createElement("a");
+    a.href = "stock.html?e=" + encodeURIComponent(e.id);
+    a.textContent = e.nom + " — Stock";
+    a.style.color = "#1B1A3C"; a.style.fontWeight = "bold"; a.style.textDecoration = "none";
+    li.appendChild(a);
     liste.appendChild(li);
   }
 }
