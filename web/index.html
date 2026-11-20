@@ -28,12 +28,23 @@
   .lien:hover{background:none;color:var(--rouge)}
   footer{background:var(--nuit);color:#fff;text-align:center;font-size:12px;padding:12px}
   footer span{color:var(--rouge);letter-spacing:2px;font-size:11px}
+
+  .bloc{margin-top:22px;padding-top:14px;border-top:1px solid #dcdce6}
+  .bloc h2{font-family:Georgia,serif;color:var(--nuit);font-size:16px;margin:0 0 8px}
+  .ligne{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:14px}
+  .ligne input,.ligne select{flex:1;min-width:120px;padding:8px;border:1px solid #bfc0cc;border-radius:4px;font-size:14px}
+  .ligne button{margin:0;width:auto;padding:8px 12px;font-size:13px}
+  .petit{font-size:12px;color:#555;margin:4px 0 0}
+  .client{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px dashed #ddd}
+  .client button{margin:0;width:auto;padding:4px 8px;font-size:12px;background:#777}
+  .gris{background:#f5f5f9}
+  .roleTag{font-size:12px;color:#555;text-transform:uppercase;letter-spacing:1px}
 </style>
 </head>
 <body>
 <header><img src="charte/p2_img16.png" alt="Global First Engineering"></header>
 <main>
-<div class="carte">
+<div class="carte" id="carte">
   <div id="connexion">
     <h1>Espace client</h1>
     <p class="sous">Connectez-vous pour accéder à vos entreprises.</p>
@@ -46,10 +57,35 @@
       <div class="erreur" id="erreur"></div>
     </form>
   </div>
+
   <div class="zone" id="espace">
-    <h1>Mes entreprises</h1>
+    <div class="roleTag" id="role"></div>
+    <h1 id="titre">Mes entreprises</h1>
     <p class="sous" id="bienvenue"></p>
     <ul class="liste" id="liste"></ul>
+
+    <!-- Vue comptable -->
+    <div id="vueComptable" style="display:none">
+      <div class="bloc">
+        <h2>Créer une entreprise</h2>
+        <div class="ligne"><input id="nouvelleEntreprise" placeholder="Nom de l'entreprise"><button id="btnCreer">Créer</button></div>
+        <div class="erreur" id="erreurCreer"></div>
+      </div>
+      <div class="bloc" id="blocGestion" style="display:none">
+        <h2 id="titreGestion"></h2>
+        <div id="clients"></div>
+        <h2 style="margin-top:14px">Ajouter un client</h2>
+        <p class="petit">Crée le compte si l'e-mail n'existe pas encore, avec le mot de passe provisoire donné. Le client le changera ensuite.</p>
+        <div class="ligne"><input id="cliEmail" type="email" placeholder="E-mail du client"></div>
+        <div class="ligne"><input id="cliMdp" type="text" placeholder="Mot de passe provisoire (8 car. min.)"><button id="btnClient">Ajouter</button></div>
+        <div class="erreur" id="erreurClient"></div>
+        <h2 style="margin-top:14px">Réattribuer à un autre comptable</h2>
+        <div class="ligne"><select id="cibleComptable"></select><button id="btnReattr">Réattribuer</button></div>
+        <p class="petit">Vous perdez l'accès à cette entreprise après le transfert.</p>
+        <div class="erreur" id="erreurReattr"></div>
+      </div>
+    </div>
+
     <button class="lien" id="deconnexion">Se déconnecter</button>
   </div>
 </div>
@@ -62,29 +98,139 @@ const SUPABASE_URL = "https://ewcxndlelagtrlshadlj.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3Y3huZGxlbGFndHJsc2hhZGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMjU4NzYsImV4cCI6MjEwMjgwMTg3Nn0.56ORPMKuu-RcbcqVTLuKC3gylOw5jQmXgIb1adXbjCg";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "gfe" } });
+// Client séparé, sans session : sert à créer le compte d'un client sans déconnecter le comptable
+const sbNouveau = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false }, db: { schema: "gfe" } });
 const $ = (id) => document.getElementById(id);
+let entrepriseGeree = null;
 
-async function afficherEspace(session) {
-  $("connexion").style.display = "none";
-  $("espace").style.display = "block";
-  $("bienvenue").textContent = "Connecté : " + (session.user.email || "");
+function texte(el, t){ el.textContent = t; }
+
+async function rpc(nom, args){
+  const { data, error } = await sb.rpc(nom, args);
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function chargerEntreprises(){
   const { data, error } = await sb.from("entreprises").select("id, nom").order("nom");
-  const liste = $("liste");
-  liste.innerHTML = "";
-  if (error) { liste.innerHTML = "<li>Erreur de chargement.</li>"; return; }
-  if (!data.length) { liste.innerHTML = "<li>Aucune entreprise rattachée à votre compte.</li>"; return; }
-  for (const e of data) {
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+function lienStock(e){
+  const a = document.createElement("a");
+  a.href = "stock.html?e=" + encodeURIComponent(e.id);
+  a.textContent = e.nom + " — Stock";
+  a.style.color = "#1B1A3C"; a.style.fontWeight = "bold"; a.style.textDecoration = "none";
+  return a;
+}
+
+async function afficherComptable(){
+  $("vueComptable").style.display = "block";
+  texte($("titre"), "Mes entreprises (comptable)");
+  const entreprises = await chargerEntreprises();
+  const liste = $("liste"); liste.innerHTML = "";
+  if (!entreprises.length) liste.innerHTML = "<li>Aucune entreprise. Créez-en une ci-dessous.</li>";
+  for (const e of entreprises){
     const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.href = "stock.html?e=" + encodeURIComponent(e.id);
-    a.textContent = e.nom + " — Stock";
-    a.style.color = "#1B1A3C"; a.style.fontWeight = "bold"; a.style.textDecoration = "none";
-    li.appendChild(a);
+    const ligne = document.createElement("div");
+    ligne.style.display = "flex"; ligne.style.justifyContent = "space-between"; ligne.style.alignItems = "center";
+    ligne.appendChild(lienStock(e));
+    const g = document.createElement("button");
+    g.className = "lien"; g.style.margin = "0"; g.textContent = "Gérer les clients";
+    g.onclick = () => ouvrirGestion(e);
+    ligne.appendChild(g);
+    li.appendChild(ligne);
     liste.appendChild(li);
+  }
+  // comptables pour la réattribution
+  const comptables = await rpc("lister_comptables", {});
+  const sel = $("cibleComptable"); sel.innerHTML = "";
+  for (const c of comptables){
+    const o = document.createElement("option"); o.value = c.id; o.textContent = c.nom || c.id; sel.appendChild(o);
   }
 }
 
-function afficherConnexion() {
+async function ouvrirGestion(e){
+  entrepriseGeree = e;
+  $("blocGestion").style.display = "block";
+  texte($("titreGestion"), "Gestion : " + e.nom);
+  $("erreurClient").textContent = ""; $("erreurReattr").textContent = "";
+  await rafraichirClients();
+}
+
+async function rafraichirClients(){
+  const box = $("clients"); box.innerHTML = "";
+  const clients = await rpc("lister_clients", { p_entreprise: entrepriseGeree.id });
+  if (!clients.length) box.innerHTML = "<p class='petit'>Aucun client rattaché pour l'instant.</p>";
+  for (const c of clients){
+    const d = document.createElement("div"); d.className = "client";
+    const s = document.createElement("span"); s.textContent = c.email;
+    const b = document.createElement("button"); b.textContent = "Retirer";
+    b.onclick = async () => {
+      if (!confirm("Retirer " + c.email + " de cette entreprise ?")) return;
+      try { await rpc("retirer_client", { p_entreprise: entrepriseGeree.id, p_profil: c.profil_id }); await rafraichirClients(); }
+      catch(err){ $("erreurClient").textContent = err.message; }
+    };
+    d.appendChild(s); d.appendChild(b); box.appendChild(d);
+  }
+}
+
+$("btnClient").addEventListener("click", async () => {
+  $("erreurClient").textContent = "";
+  const email = $("cliEmail").value.trim();
+  const mdp = $("cliMdp").value;
+  if (!email) { $("erreurClient").textContent = "Indiquez un e-mail."; return; }
+  try {
+    // 1) créer le compte si besoin (une erreur « déjà inscrit » est normale)
+    if (mdp.length >= 8) {
+      const { error } = await sbNouveau.auth.signUp({ email, password: mdp });
+      if (error && !/already|registered|existe/i.test(error.message)) throw new Error(error.message);
+    }
+    // 2) rattacher à l'entreprise
+    await rpc("ajouter_client", { p_entreprise: entrepriseGeree.id, p_email: email });
+    $("cliEmail").value = ""; $("cliMdp").value = "";
+    await rafraichirClients();
+  } catch(err){ $("erreurClient").textContent = err.message; }
+});
+
+$("btnCreer").addEventListener("click", async () => {
+  $("erreurCreer").textContent = "";
+  try {
+    await rpc("creer_entreprise", { p_nom: $("nouvelleEntreprise").value });
+    $("nouvelleEntreprise").value = "";
+    await afficherComptable();
+  } catch(err){ $("erreurCreer").textContent = err.message; }
+});
+
+$("btnReattr").addEventListener("click", async () => {
+  $("erreurReattr").textContent = "";
+  if (!confirm("Transférer « " + entrepriseGeree.nom + " » à ce comptable ? Vous n'y aurez plus accès.")) return;
+  try {
+    await rpc("reattribuer_entreprise", { p_entreprise: entrepriseGeree.id, p_nouveau: $("cibleComptable").value });
+    $("blocGestion").style.display = "none";
+    await afficherComptable();
+  } catch(err){ $("erreurReattr").textContent = err.message; }
+});
+
+async function afficherEspace(session){
+  $("connexion").style.display = "none";
+  $("espace").style.display = "block";
+  texte($("bienvenue"), "Connecté : " + (session.user.email || ""));
+  let role = "entreprise";
+  try { role = await rpc("mon_role", {}); } catch(e){ /* repli : client */ }
+  texte($("role"), role === "comptable" ? "Compte comptable" : "Compte entreprise");
+  if (role === "comptable") { await afficherComptable(); return; }
+  texte($("titre"), "Mes entreprises");
+  const liste = $("liste"); liste.innerHTML = "";
+  const entreprises = await chargerEntreprises();
+  if (!entreprises.length) { liste.innerHTML = "<li>Aucune entreprise rattachée à votre compte.</li>"; return; }
+  for (const e of entreprises){
+    const li = document.createElement("li"); li.appendChild(lienStock(e)); liste.appendChild(li);
+  }
+}
+
+function afficherConnexion(){
   $("espace").style.display = "none";
   $("connexion").style.display = "block";
 }
@@ -93,20 +239,14 @@ $("formulaire").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   $("erreur").textContent = "";
   $("bouton").disabled = true;
-  const { data, error } = await sb.auth.signInWithPassword({
-    email: $("email").value.trim(),
-    password: $("mdp").value,
-  });
+  const { data, error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("mdp").value });
   $("bouton").disabled = false;
   if (error) { $("erreur").textContent = "E-mail ou mot de passe incorrect."; return; }
   $("mdp").value = "";
   afficherEspace(data.session);
 });
 
-$("deconnexion").addEventListener("click", async () => {
-  await sb.auth.signOut();
-  afficherConnexion();
-});
+$("deconnexion").addEventListener("click", async () => { await sb.auth.signOut(); afficherConnexion(); });
 
 sb.auth.getSession().then(({ data }) => {
   if (data.session) afficherEspace(data.session); else afficherConnexion();
