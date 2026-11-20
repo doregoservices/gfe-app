@@ -5,38 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GFE — Stock</title>
 <style>
-  :root{--nuit:#1B1A3C;--rouge:#DC2529;--noir:#000;--blanc:#FFF}
+  :root{--nuit:#1B1A3C;--rouge:#DC2529;--blanc:#FFF;--gris:#f5f5f9}
   *{box-sizing:border-box}
-  body{margin:0;font-family:Arial,Calibri,sans-serif;background:var(--blanc);color:var(--noir)}
-  header{background:var(--nuit);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  header img{height:48px;width:auto}
-  header .sortie{background:none;color:#fff;border:1px solid #fff;padding:7px 12px;font-size:13px;width:auto;margin:0}
-  main{max-width:960px;margin:0 auto;padding:28px 16px}
-  h1{font-family:Georgia,'Times New Roman',serif;color:var(--nuit);font-size:24px;margin:0 0 4px}
-  h2{font-family:Georgia,'Times New Roman',serif;color:var(--nuit);font-size:17px;margin:28px 0 10px;border-bottom:2px solid var(--nuit);padding-bottom:4px}
-  p.sous{margin:0 0 18px;color:#444;font-size:14px}
-  table{width:100%;border-collapse:collapse;font-size:14px}
-  th{background:var(--nuit);color:#fff;text-align:left;padding:9px 10px;font-weight:bold}
-  td{padding:9px 10px;border-bottom:1px solid #e3e3ea}
-  td.num,th.num{text-align:right}
+  body{margin:0;font-family:Arial,Calibri,sans-serif;background:var(--blanc);color:#000}
+  header{background:var(--nuit);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  header img{height:44px}
+  .btn-sec{background:none;color:#fff;border:1px solid #fff;padding:7px 12px;font-size:13px;width:auto;margin:0}
+  nav{background:var(--gris);border-bottom:2px solid var(--nuit);display:flex;flex-wrap:wrap;position:sticky;top:0;z-index:2}
+  nav button{background:none;color:var(--nuit);margin:0;width:auto;padding:12px 16px;font-weight:bold;border-bottom:3px solid transparent}
+  nav button.actif{border-bottom-color:var(--rouge);color:var(--rouge)}
+  nav button:hover{background:#e7e7ef}
+  main{max-width:1040px;margin:0 auto;padding:22px 16px 60px}
+  h1{font-family:Georgia,'Times New Roman',serif;color:var(--nuit);font-size:22px;margin:0 0 4px}
+  h2{font-family:Georgia,'Times New Roman',serif;color:var(--nuit);font-size:16px;margin:24px 0 10px;border-bottom:2px solid var(--nuit);padding-bottom:4px}
+  p.sous{margin:0 0 16px;color:#444;font-size:14px}
+  table{width:100%;border-collapse:collapse;font-size:14px;background:#fff}
+  th{background:var(--nuit);color:#fff;text-align:left;padding:9px 10px;font-weight:bold;cursor:pointer;user-select:none;white-space:nowrap}
+  th:hover{background:#2b2a5a}
+  td{padding:8px 10px;border-bottom:1px solid #e3e3ea;vertical-align:top}
+  .num{text-align:right;white-space:nowrap}
   tr.alerte td{color:var(--rouge);font-weight:bold}
-  .badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:12px;background:var(--rouge);color:#fff;margin-left:6px}
-  form.grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end}
-  label{display:block;font-size:13px;color:var(--nuit);font-weight:bold;margin-bottom:4px}
-  input,select{width:100%;padding:9px 10px;border:1px solid #bfc0cc;border-radius:4px;font-size:14px;font-family:inherit;background:#fff}
-  button{padding:10px 16px;border:0;border-radius:4px;background:var(--nuit);color:#fff;font-weight:bold;font-size:14px;cursor:pointer}
+  .badge{display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:var(--rouge);color:#fff;margin-left:6px;font-weight:normal}
+  .carte{background:#fff;border-top:4px solid var(--nuit);box-shadow:0 2px 12px rgba(27,26,60,.10);padding:16px;margin-top:8px}
+  .grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;align-items:end}
+  label{display:block;font-size:12px;color:var(--nuit);font-weight:bold;margin-bottom:4px}
+  input,select{width:100%;padding:8px 9px;border:1px solid #bfc0cc;border-radius:4px;font-size:14px;font-family:inherit;background:#fff}
+  button{padding:9px 14px;border:0;border-radius:4px;background:var(--nuit);color:#fff;font-weight:bold;font-size:14px;cursor:pointer;width:auto}
   button:hover{background:#2b2a5a}
+  button.secondaire{background:#fff;color:var(--nuit);border:1px solid var(--nuit)}
   .msg{font-size:14px;margin-top:10px;min-height:18px}
-  .msg.ok{color:#1d6b3a} .msg.ko{color:var(--rouge)}
-  .carte{background:#fff;border-top:4px solid var(--nuit);box-shadow:0 2px 14px rgba(27,26,60,.10);padding:18px;margin-top:10px}
+  .ok{color:#1d6b3a} .ko{color:var(--rouge)}
+  .periodes button{background:#fff;color:var(--nuit);border:1px solid var(--nuit);margin-right:6px}
+  .periodes button.actif{background:var(--nuit);color:#fff}
+  .ligne-prod{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;margin-top:8px}
+  .kpi{display:inline-block;background:var(--gris);border-left:4px solid var(--nuit);padding:10px 14px;margin:6px 10px 6px 0}
+  .kpi b{display:block;font-size:18px;color:var(--nuit)}
   .zone-connexion{max-width:380px;margin:60px auto;background:#fff;border-top:4px solid var(--nuit);box-shadow:0 2px 14px rgba(27,26,60,.12);padding:30px}
-  .vide{color:#666;font-size:14px;padding:10px 0}
+  .vide{color:#666;padding:10px 0}
+  @media print{ header,nav,.noprint{display:none!important} main{padding:0} }
 </style>
 </head>
 <body>
 <header>
   <img src="charte/p2_img16.png" alt="Global First Engineering">
-  <button class="sortie" id="deconnexion" style="display:none">Se déconnecter</button>
+  <button class="btn-sec noprint" id="deconnexion" style="display:none">Se déconnecter</button>
 </header>
 
 <div id="connexion" class="zone-connexion" style="display:none">
@@ -52,42 +64,155 @@
   </form>
 </div>
 
-<main id="appli" style="display:none">
+<div id="appli" style="display:none">
+<nav class="noprint">
+  <button data-onglet="accueil" class="actif">Accueil</button>
+  <button data-onglet="mouvements">Mouvements</button>
+  <button data-onglet="production">Production</button>
+  <button data-onglet="points">Points de vente</button>
+  <button data-onglet="parametres">Paramètres</button>
+</nav>
+<main>
   <h1 id="titre">Stock</h1>
   <p class="sous" id="sous"></p>
 
-  <h2>Stock actuel</h2>
-  <div class="carte" style="padding:0;overflow-x:auto">
-    <table>
-      <thead><tr><th>Désignation</th><th>Unité</th><th class="num">Stock</th><th class="num">Seuil</th></tr></thead>
-      <tbody id="tbl-stock"></tbody>
-    </table>
-  </div>
+  <section id="s-accueil">
+    <h2>Stock restant</h2>
+    <div class="carte" style="padding:0;overflow-x:auto"><table class="triable">
+      <thead><tr><th>Désignation</th><th>Type</th><th>Unité</th><th class="num">Stock</th><th class="num">Seuil</th></tr></thead>
+      <tbody id="t-stock"></tbody></table></div>
+    <h2>Point de vente du mois en cours</h2>
+    <div id="kpi-mois"></div>
+    <div class="carte" style="padding:0;overflow-x:auto"><table class="triable">
+      <thead><tr><th>Point de vente</th><th class="num">Quantité</th><th class="num">Montant (F)</th></tr></thead>
+      <tbody id="t-mois"></tbody></table></div>
+  </section>
 
-  <h2>Nouveau mouvement</h2>
-  <div class="carte">
-    <form id="form-mvt" class="grille">
-      <div><label for="mvt-produit">Produit</label><select id="mvt-produit" required></select></div>
-      <div><label for="mvt-type">Type</label>
-        <select id="mvt-type"><option value="entree">Entrée</option><option value="sortie">Sortie</option><option value="ajustement">Ajustement (inventaire)</option></select></div>
-      <div><label for="mvt-qte">Quantité</label><input id="mvt-qte" type="number" min="0" step="any" required></div>
-      <div><label for="mvt-note">Note</label><input id="mvt-note" type="text" maxlength="200"></div>
-      <div><button type="submit">Enregistrer</button></div>
-    </form>
-    <div class="msg" id="msg-mvt"></div>
-  </div>
+  <section id="s-mouvements" style="display:none">
+    <h2>Nouveau mouvement</h2>
+    <div class="carte">
+      <form id="f-mvt" class="grille">
+        <div><label for="m-article">Article</label><select id="m-article" required></select></div>
+        <div><label for="m-type">Type</label>
+          <select id="m-type">
+            <option value="entree">Entrée</option>
+            <option value="stock_initial">Stock initial</option>
+            <option value="sortie">Sortie</option>
+            <option value="vente">Vente</option>
+          </select></div>
+        <div><label for="m-qte">Quantité</label><input id="m-qte" type="number" min="0.01" step="any" required></div>
+        <div><label for="m-date">Date</label><input id="m-date" type="date" required></div>
+        <div class="vente" style="display:none"><label for="m-prix">Prix unitaire (F)</label><input id="m-prix" type="number" min="0" step="any"></div>
+        <div class="vente" style="display:none"><label for="m-com">Commercial</label><select id="m-com"></select></div>
+        <div class="vente" style="display:none"><label for="m-pv">Point de vente</label><select id="m-pv"></select></div>
+        <div><label for="m-note">Note</label><input id="m-note" type="text" maxlength="200"></div>
+        <div><button type="submit">Enregistrer</button></div>
+      </form>
+      <div class="msg" id="msg-mvt"></div>
+    </div>
 
-  <h2>Nouveau produit</h2>
-  <div class="carte">
-    <form id="form-prod" class="grille">
-      <div><label for="prod-nom">Désignation</label><input id="prod-nom" type="text" maxlength="120" required></div>
-      <div><label for="prod-unite">Unité</label><input id="prod-unite" type="text" value="unité" maxlength="20"></div>
-      <div><label for="prod-seuil">Seuil d'alerte</label><input id="prod-seuil" type="number" min="0" step="any" value="0"></div>
-      <div><button type="submit">Ajouter</button></div>
-    </form>
-    <div class="msg" id="msg-prod"></div>
-  </div>
+    <h2>Historique</h2>
+    <div class="carte noprint">
+      <div class="grille">
+        <div><label for="f-com">Commercial</label><select id="f-com"></select></div>
+        <div><label for="f-pv">Point de vente</label><select id="f-pv"></select></div>
+        <div><label for="f-article">Article</label><select id="f-article"></select></div>
+      </div>
+    </div>
+    <div class="carte" style="padding:0;overflow-x:auto"><table class="triable">
+      <thead><tr><th>Date</th><th>Article</th><th>Type</th><th class="num">Quantité</th><th>Commercial</th><th>Point</th><th>Note</th></tr></thead>
+      <tbody id="t-mvt"></tbody></table></div>
+  </section>
+
+  <section id="s-production" style="display:none">
+    <h2>Enregistrer une fabrication</h2>
+    <div class="carte">
+      <div class="grille">
+        <div><label for="p-usine">Usine</label><select id="p-usine"></select></div>
+        <div><label for="p-produit">Produit fini</label><select id="p-produit"></select></div>
+        <div><label for="p-qte">Quantité produite</label><input id="p-qte" type="number" min="0.01" step="any"></div>
+        <div><label for="p-date">Date</label><input id="p-date" type="date"></div>
+      </div>
+      <h2 style="margin-top:18px">Matières utilisées (8 maximum)</h2>
+      <p class="sous" style="margin:0">Matière à lot : saisissez le numéro de lot, et la quantité seulement la première fois que ce lot est utilisé. Matière à quantité : quantité obligatoire.</p>
+      <div id="lignes"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="secondaire" id="ajout-ligne">+ Ajouter une matière</button>
+        <button type="button" id="valider-prod">Enregistrer la fabrication</button>
+      </div>
+      <div class="msg" id="msg-prod"></div>
+    </div>
+  </section>
+
+  <section id="s-points" style="display:none">
+    <h2>Période</h2>
+    <div class="carte">
+      <div class="periodes noprint" style="margin-bottom:12px">
+        <button data-periode="jour">Jour</button>
+        <button data-periode="semaine">Semaine</button>
+        <button data-periode="mois" class="actif">Mois</button>
+        <button data-periode="libre">Libre</button>
+      </div>
+      <div class="grille">
+        <div><label for="r-debut">Du</label><input id="r-debut" type="date"></div>
+        <div><label for="r-fin">Au</label><input id="r-fin" type="date"></div>
+        <div><label for="r-com">Commercial</label><select id="r-com"></select></div>
+        <div><label for="r-pv">Point de vente</label><select id="r-pv"></select></div>
+        <div class="noprint"><button type="button" class="secondaire" onclick="window.print()">Imprimer</button></div>
+      </div>
+    </div>
+    <div id="r-kpi"></div>
+    <h2>Par commercial</h2>
+    <div class="carte" style="padding:0;overflow-x:auto"><table class="triable">
+      <thead><tr><th>Commercial</th><th class="num">Quantité</th><th class="num">Montant (F)</th></tr></thead>
+      <tbody id="r-com-t"></tbody></table></div>
+    <h2>Par point de vente</h2>
+    <div class="carte" style="padding:0;overflow-x:auto"><table class="triable">
+      <thead><tr><th>Point de vente</th><th class="num">Quantité</th><th class="num">Montant (F)</th></tr></thead>
+      <tbody id="r-pv-t"></tbody></table></div>
+    <h2>Détail des ventes</h2>
+    <div class="carte" style="padding:0;overflow-x:auto"><table class="triable">
+      <thead><tr><th>Date</th><th>Commercial</th><th>Point de vente</th><th>Article</th><th class="num">Quantité</th><th class="num">Prix (F)</th><th class="num">Montant (F)</th></tr></thead>
+      <tbody id="r-det"></tbody></table></div>
+  </section>
+
+  <section id="s-parametres" style="display:none">
+    <h2>Nouvel article</h2>
+    <div class="carte">
+      <form id="f-art" class="grille">
+        <div><label for="a-nom">Désignation</label><input id="a-nom" required maxlength="120"></div>
+        <div><label for="a-cat">Type</label><select id="a-cat"><option value="matiere">Matière première</option><option value="produit_fini">Produit fini</option></select></div>
+        <div><label for="a-unite">Unité</label><input id="a-unite" value="unité" maxlength="20"></div>
+        <div><label for="a-seuil">Seuil d'alerte</label><input id="a-seuil" type="number" min="0" step="any" value="0"></div>
+        <div><label for="a-mode">Suivi (matières)</label><select id="a-mode"><option value="quantite">Par quantité</option><option value="lot">Par lot</option></select></div>
+        <div><button type="submit">Ajouter</button></div>
+      </form>
+      <div class="msg" id="msg-art"></div>
+    </div>
+    <h2>Nouveau point (usine ou point de vente)</h2>
+    <div class="carte">
+      <form id="f-pt" class="grille">
+        <div><label for="pt-nom">Nom</label><input id="pt-nom" required maxlength="120"></div>
+        <div><label for="pt-type">Type</label><select id="pt-type"><option value="point_vente">Point de vente</option><option value="usine">Usine</option></select></div>
+        <div><button type="submit">Ajouter</button></div>
+      </form>
+      <div class="msg" id="msg-pt"></div>
+    </div>
+    <h2>Nouveau commercial</h2>
+    <div class="carte">
+      <form id="f-com" class="grille">
+        <div><label for="c-nom">Nom</label><input id="c-nom" required maxlength="120"></div>
+        <div><button type="submit">Ajouter</button></div>
+      </form>
+      <div class="msg" id="msg-com"></div>
+    </div>
+    <h2>Articles existants</h2>
+    <div class="carte" style="padding:0;overflow-x:auto"><table class="triable">
+      <thead><tr><th>Désignation</th><th>Type</th><th>Suivi</th><th class="num">Seuil</th></tr></thead>
+      <tbody id="p-art"></tbody></table></div>
+  </section>
 </main>
+</div>
 
 <script type="module">
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -97,79 +222,256 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "gfe" } });
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-let entrepriseId = params.get("e");
+const entrepriseId = params.get("e");
+let D = { articles: [], points: [], commerciaux: [] };
+let periode = "mois";
 
-function echappe(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-function montre(el, texte, ok){ el.textContent = texte; el.className = "msg " + (ok ? "ok" : "ko"); }
+const F = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+const echappe = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const iso = (d) => { const z = new Date(d.getTime() - d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
+const montre = (el, t, ok) => { el.textContent = t; el.className = "msg " + (ok ? "ok" : "ko"); };
+const TYPES = { stock_initial: "Stock initial", entree: "Entrée", sortie: "Sortie", vente: "Vente", production: "Fabrication", consommation: "Consommation" };
 
-async function charger() {
-  if (!entrepriseId) { $("sous").textContent = "Entreprise non précisée."; return; }
-  const { data: ent } = await sb.from("entreprises").select("nom").eq("id", entrepriseId).single();
-  $("titre").textContent = "Stock — " + (ent?.nom || "");
-  const { data: stock, error } = await sb.from("stock_actuel").select("*").eq("entreprise_id", entrepriseId).order("designation");
-  const tbody = $("tbl-stock"); tbody.innerHTML = "";
-  const sel = $("mvt-produit"); sel.innerHTML = "";
-  if (error) { tbody.innerHTML = '<tr><td colspan="4">Erreur de chargement.</td></tr>'; return; }
-  if (!stock.length) { tbody.innerHTML = '<tr><td colspan="4" class="vide">Aucun produit. Ajoutez-en un ci-dessous.</td></tr>'; }
-  for (const p of stock) {
-    const alerte = Number(p.stock) <= Number(p.seuil);
-    const tr = document.createElement("tr");
-    if (alerte) tr.className = "alerte";
-    tr.innerHTML = `<td>${echappe(p.designation)}${alerte ? '<span class="badge">' + (Number(p.stock) === 0 ? "Rupture" : "Stock faible") + '</span>' : ""}</td>
-      <td>${echappe(p.unite)}</td><td class="num">${Number(p.stock).toLocaleString("fr-FR")}</td><td class="num">${Number(p.seuil).toLocaleString("fr-FR")}</td>`;
-    tbody.appendChild(tr);
-    const o = document.createElement("option"); o.value = p.produit_id; o.textContent = p.designation; sel.appendChild(o);
-  }
+// Tri par clic sur les en-têtes des tableaux
+function rendreTriable(table) {
+  table.querySelectorAll("th").forEach((th, idx) => {
+    th.onclick = () => {
+      const tb = table.tBodies[0];
+      const rows = [...tb.rows];
+      const asc = th.dataset.sens !== "asc";
+      table.querySelectorAll("th").forEach(t => delete t.dataset.sens);
+      th.dataset.sens = asc ? "asc" : "desc";
+      rows.sort((a, b) => {
+        const x = a.cells[idx]?.dataset.val ?? a.cells[idx]?.textContent.trim();
+        const y = b.cells[idx]?.dataset.val ?? b.cells[idx]?.textContent.trim();
+        const nx = parseFloat(x), ny = parseFloat(y);
+        const r = (!isNaN(nx) && !isNaN(ny)) ? nx - ny : String(x).localeCompare(String(y), "fr");
+        return asc ? r : -r;
+      });
+      rows.forEach(r => tb.appendChild(r));
+    };
+  });
+}
+document.querySelectorAll("table.triable").forEach(rendreTriable);
+
+function remplirSelect(el, items, { vide = null, valeur = "id", libelle = "nom" } = {}) {
+  el.innerHTML = "";
+  if (vide !== null) el.appendChild(new Option(vide, ""));
+  items.forEach(i => el.appendChild(new Option(i[libelle], i[valeur])));
 }
 
-async function afficher(session) {
-  $("connexion").style.display = "none";
-  $("appli").style.display = "block";
-  $("deconnexion").style.display = "inline-block";
+async function chargerRef() {
+  const [a, p, c] = await Promise.all([
+    sb.from("stock_articles").select("id, designation, categorie, unite, seuil, mode").eq("entreprise_id", entrepriseId).order("designation"),
+    sb.from("points").select("id, nom, type").eq("entreprise_id", entrepriseId).order("nom"),
+    sb.from("commerciaux").select("id, nom").eq("entreprise_id", entrepriseId).order("nom"),
+  ]);
+  D.articles = a.data || []; D.points = p.data || []; D.commerciaux = c.data || [];
+  const mats = D.articles.filter(x => x.categorie === "matiere");
+  const fins = D.articles.filter(x => x.categorie === "produit_fini");
+  remplirSelect($("m-article"), D.articles, { libelle: "designation" });
+  remplirSelect($("m-com"), D.commerciaux, { vide: "—" });
+  remplirSelect($("m-pv"), D.points.filter(x => x.type === "point_vente"), { vide: "—" });
+  remplirSelect($("f-com"), D.commerciaux, { vide: "Tous" });
+  remplirSelect($("r-com"), D.commerciaux, { vide: "Tous" });
+  remplirSelect($("f-pv"), D.points, { vide: "Tous" });
+  remplirSelect($("r-pv"), D.points, { vide: "Tous" });
+  remplirSelect($("f-article"), D.articles, { vide: "Tous", libelle: "designation" });
+  remplirSelect($("p-usine"), D.points.filter(x => x.type === "usine"), { vide: "—" });
+  remplirSelect($("p-produit"), fins, { vide: "—", libelle: "designation" });
+  if (!$("lignes").children.length) ajouterLigne();
+  $("lignes").dataset.mats = JSON.stringify(mats);
+  $("p-art").innerHTML = D.articles.map(x => `<tr><td>${echappe(x.designation)}</td><td>${x.categorie === "matiere" ? "Matière" : "Produit fini"}</td><td>${x.categorie === "matiere" ? (x.mode === "lot" ? "Par lot" : "Par quantité") : "—"}</td><td class="num">${F(x.seuil)}</td></tr>`).join("") || '<tr><td colspan="4" class="vide">Aucun article.</td></tr>';
+}
+
+async function chargerStock() {
+  const { data, error } = await sb.from("stock_articles_vue").select("*").eq("entreprise_id", entrepriseId).order("designation");
+  const t = $("t-stock");
+  if (error) { t.innerHTML = '<tr><td colspan="5">Erreur de chargement.</td></tr>'; return; }
+  t.innerHTML = (data || []).map(x => {
+    const st = Number(x.stock), rup = st === 0, alerte = x.alerte;
+    return `<tr class="${alerte ? "alerte" : ""}"><td>${echappe(x.designation)}${alerte ? `<span class="badge">${rup ? "Rupture" : "Stock faible"}</span>` : ""}</td>
+    <td>${x.categorie === "matiere" ? "Matière" : "Produit fini"}</td><td>${echappe(x.unite)}</td>
+    <td class="num" data-val="${st}">${F(st)}</td><td class="num" data-val="${x.seuil}">${F(x.seuil)}</td></tr>`;
+  }).join("") || '<tr><td colspan="5" class="vide">Aucun article. Ajoutez-en dans Paramètres.</td></tr>';
+  if (!data?.length) return;
+  const debut = iso(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const fin = iso(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0));
+  const { data: r } = await sb.rpc("rapport_ventes", { p_entreprise: entrepriseId, p_debut: debut, p_fin: fin });
+  const par = {};
+  (r || []).forEach(v => { par[v.point] ??= { q: 0, m: 0 }; par[v.point].q += Number(v.quantite); par[v.point].m += Number(v.montant); });
+  const tot = Object.values(par).reduce((s, x) => s + x.m, 0);
+  $("kpi-mois").innerHTML = `<span class="kpi">Ventes du mois<b>${F(tot)} F</b></span>`;
+  $("t-mois").innerHTML = Object.entries(par).map(([k, v]) => `<tr><td>${echappe(k)}</td><td class="num" data-val="${v.q}">${F(v.q)}</td><td class="num" data-val="${v.m}">${F(v.m)}</td></tr>`).join("") || '<tr><td colspan="3" class="vide">Aucune vente ce mois-ci.</td></tr>';
+}
+
+async function chargerMouvements() {
+  let q = sb.from("mouvements").select("id, date_mouvement, type, quantite, article_id, commercial_id, point_id, note").eq("entreprise_id", entrepriseId).order("date_mouvement", { ascending: false }).order("created_at", { ascending: false }).limit(300);
+  if ($("f-com").value) q = q.eq("commercial_id", $("f-com").value);
+  if ($("f-pv").value) q = q.eq("point_id", $("f-pv").value);
+  if ($("f-article").value) q = q.eq("article_id", $("f-article").value);
+  const { data } = await q;
+  const nom = (list, id) => list.find(x => x.id === id);
+  $("t-mvt").innerHTML = (data || []).map(m => `<tr>
+    <td data-val="${m.date_mouvement}">${m.date_mouvement}</td>
+    <td>${echappe(nom(D.articles, m.article_id)?.designation)}</td>
+    <td>${TYPES[m.type] || m.type}</td>
+    <td class="num" data-val="${m.quantite}">${F(m.quantite)}</td>
+    <td>${echappe(nom(D.commerciaux, m.commercial_id)?.nom)}</td>
+    <td>${echappe(nom(D.points, m.point_id)?.nom)}</td>
+    <td>${echappe(m.note)}</td></tr>`).join("") || '<tr><td colspan="7" class="vide">Aucun mouvement.</td></tr>';
+}
+
+function bornesPeriode() {
+  const now = new Date();
+  if (periode === "jour") return [iso(now), iso(now)];
+  if (periode === "semaine") { const j = (now.getDay() + 6) % 7; const d1 = new Date(now); d1.setDate(now.getDate() - j); const d2 = new Date(d1); d2.setDate(d1.getDate() + 6); return [iso(d1), iso(d2)]; }
+  if (periode === "mois") return [iso(new Date(now.getFullYear(), now.getMonth(), 1)), iso(new Date(now.getFullYear(), now.getMonth() + 1, 0))];
+  return [$("r-debut").value, $("r-fin").value];
+}
+
+async function chargerRapport() {
+  const [debut, fin] = bornesPeriode();
+  if (!debut || !fin) return;
+  const { data, error } = await sb.rpc("rapport_ventes", {
+    p_entreprise: entrepriseId, p_debut: debut, p_fin: fin,
+    p_commercial: $("r-com").value || null, p_point: $("r-pv").value || null });
+  if (error) { $("r-det").innerHTML = `<tr><td colspan="7" class="ko">${echappe(error.message)}</td></tr>`; return; }
+  const rows = data || [];
+  const sum = (arr, k) => arr.reduce((s, x) => s + Number(x[k] || 0), 0);
+  const groupe = (cle) => Object.values(rows.reduce((acc, v) => { const k = v[cle]; acc[k] ??= { k, quantite: 0, montant: 0 }; acc[k].quantite += Number(v.quantite); acc[k].montant += Number(v.montant); return acc; }, {}));
+  $("r-kpi").innerHTML = `<span class="kpi">Période<b>${debut} → ${fin}</b></span><span class="kpi">Montant total<b>${F(sum(rows, "montant"))} F</b></span><span class="kpi">Quantité vendue<b>${F(sum(rows, "quantite"))}</b></span>`;
+  $("r-com-t").innerHTML = groupe("commercial").map(x => `<tr><td>${echappe(x.k)}</td><td class="num" data-val="${x.quantite}">${F(x.quantite)}</td><td class="num" data-val="${x.montant}">${F(x.montant)}</td></tr>`).join("") || '<tr><td colspan="3" class="vide">Aucune vente sur la période.</td></tr>';
+  $("r-pv-t").innerHTML = groupe("point").map(x => `<tr><td>${echappe(x.k)}</td><td class="num" data-val="${x.quantite}">${F(x.quantite)}</td><td class="num" data-val="${x.montant}">${F(x.montant)}</td></tr>`).join("") || '<tr><td colspan="3" class="vide">Aucun point de vente actif sur la période.</td></tr>';
+  $("r-det").innerHTML = rows.map(v => `<tr><td data-val="${v.date_mouvement}">${v.date_mouvement}</td><td>${echappe(v.commercial)}</td><td>${echappe(v.point)}</td><td>${echappe(v.article)}</td><td class="num" data-val="${v.quantite}">${F(v.quantite)}</td><td class="num" data-val="${v.prix_unitaire}">${F(v.prix_unitaire)}</td><td class="num" data-val="${v.montant}">${F(v.montant)}</td></tr>`).join("") || '<tr><td colspan="7" class="vide">Aucune vente sur la période.</td></tr>';
+}
+
+function ajouterLigne() {
+  const mats = D.articles.filter(x => x.categorie === "matiere");
+  const div = document.createElement("div");
+  div.className = "ligne-prod";
+  div.innerHTML = `<div><label>Matière</label><select class="l-art">${mats.map(m => `<option value="${m.id}" data-mode="${m.mode}">${echappe(m.designation)}${m.mode === "lot" ? " (lot)" : ""}</option>`).join("")}</select></div>
+    <div><label>N° de lot</label><input class="l-lot" placeholder="si matière à lot"></div>
+    <div><label>Quantité</label><input class="l-qte" type="number" min="0.01" step="any"></div>
+    <div><button type="button" class="secondaire l-suppr">Retirer</button></div>`;
+  div.querySelector(".l-suppr").onclick = () => div.remove();
+  $("lignes").appendChild(div);
+}
+
+function fixerPeriode(p) {
+  periode = p;
+  document.querySelectorAll(".periodes button").forEach(b => b.classList.toggle("actif", b.dataset.periode === p));
+  if (p !== "libre") {
+    const [d, f] = bornesPeriode(); $("r-debut").value = d; $("r-fin").value = f;
+  }
+  chargerRapport();
+}
+
+document.querySelectorAll(".periodes button").forEach(b => b.onclick = () => fixerPeriode(b.dataset.periode));
+// Période libre : dès qu'une date est saisie, elle s'applique sans passer par « Libre »
+["r-debut", "r-fin"].forEach(id => $(id).addEventListener("change", () => {
+  periode = "libre";
+  document.querySelectorAll(".periodes button").forEach(b => b.classList.toggle("actif", b.dataset.periode === "libre"));
+  if ($("r-debut").value && $("r-fin").value) chargerRapport();
+}));
+["r-com", "r-pv"].forEach(id => $(id).addEventListener("change", chargerRapport));
+["f-com", "f-pv", "f-article"].forEach(id => $(id).addEventListener("change", chargerMouvements));
+
+// Onglets
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("actif", x === b));
+  ["accueil","mouvements","production","points","parametres"].forEach(s => $("s-" + s).style.display = s === b.dataset.onglet ? "block" : "none");
+  if (b.dataset.onglet === "accueil") chargerStock();
+  if (b.dataset.onglet === "mouvements") chargerMouvements();
+  if (b.dataset.onglet === "points") { if (!$("r-debut").value) fixerPeriode("mois"); else chargerRapport(); }
+});
+
+// Type de mouvement : champs vente visibles seulement pour une vente
+$("m-type").addEventListener("change", () => {
+  document.querySelectorAll(".vente").forEach(x => x.style.display = $("m-type").value === "vente" ? "block" : "none");
+});
+
+$("f-mvt").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const { data: { user } } = await sb.auth.getUser();
+  const type = $("m-type").value;
+  const art = D.articles.find(a => a.id === $("m-article").value);
+  if (type === "vente" && (!$("m-com").value || !$("m-pv").value || $("m-prix").value === "")) { montre($("msg-mvt"), "Pour une vente : commercial, point de vente et prix sont obligatoires.", false); return; }
+  if (type === "entree" && art?.categorie === "produit_fini") { /* produits finis : entrées par fabrication */ }
+  const ligne = { entreprise_id: entrepriseId, article_id: $("m-article").value, type, quantite: Number($("m-qte").value),
+    date_mouvement: $("m-date").value || iso(new Date()), note: $("m-note").value.trim() || null, created_by: user.id };
+  if (type === "vente") { ligne.commercial_id = $("m-com").value; ligne.point_id = $("m-pv").value; ligne.prix_unitaire = Number($("m-prix").value); }
+  const { error } = await sb.from("mouvements").insert(ligne);
+  if (error) { montre($("msg-mvt"), error.message.includes("négatif") ? "Refusé : le stock ne peut pas devenir négatif." : "Refusé : " + error.message, false); return; }
+  montre($("msg-mvt"), "Mouvement enregistré.", true);
+  $("m-qte").value = ""; $("m-note").value = "";
+  await Promise.all([chargerStock(), chargerMouvements()]);
+});
+
+$("valider-prod").addEventListener("click", async () => {
+  const lignes = [...document.querySelectorAll("#lignes .ligne-prod")].map(d => {
+    const sel = d.querySelector(".l-art"); const mode = sel.selectedOptions[0]?.dataset.mode;
+    const o = { article_id: sel.value, quantite: d.querySelector(".l-qte").value || null };
+    if (mode === "lot") o.lot = d.querySelector(".l-lot").value.trim();
+    return o;
+  });
+  if (!$("p-usine").value || !$("p-produit").value || !$("p-qte").value) { montre($("msg-prod"), "Usine, produit fini et quantité sont obligatoires.", false); return; }
+  if (lignes.length > 8) { montre($("msg-prod"), "Maximum 8 matières par fabrication.", false); return; }
+  const { error } = await sb.rpc("enregistrer_production", {
+    p_entreprise: entrepriseId, p_point: $("p-usine").value, p_article: $("p-produit").value,
+    p_quantite: Number($("p-qte").value), p_date: $("p-date").value || iso(new Date()), p_lignes: lignes });
+  if (error) { montre($("msg-prod"), "Fabrication refusée (rien n'a été enregistré) : " + error.message, false); return; }
+  montre($("msg-prod"), "Fabrication enregistrée. Les stocks sont à jour.", true);
+  $("p-qte").value = ""; $("lignes").innerHTML = ""; ajouterLigne();
+  await chargerRef(); await chargerStock();
+});
+$("ajout-ligne").addEventListener("click", () => {
+  if (document.querySelectorAll("#lignes .ligne-prod").length >= 8) { montre($("msg-prod"), "Maximum 8 matières par fabrication.", false); return; }
+  ajouterLigne();
+});
+
+$("f-art").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const cat = $("a-cat").value;
+  const { error } = await sb.from("stock_articles").insert({ entreprise_id: entrepriseId, designation: $("a-nom").value.trim(),
+    categorie: cat, unite: $("a-unite").value.trim() || "unité", seuil: Number($("a-seuil").value || 0),
+    mode: cat === "matiere" ? $("a-mode").value : "quantite" });
+  if (error) { montre($("msg-art"), "Refusé : " + error.message, false); return; }
+  montre($("msg-art"), "Article ajouté.", true); $("a-nom").value = "";
+  await chargerRef();
+});
+$("f-pt").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const { error } = await sb.from("points").insert({ entreprise_id: entrepriseId, nom: $("pt-nom").value.trim(), type: $("pt-type").value });
+  if (error) { montre($("msg-pt"), "Refusé : " + error.message, false); return; }
+  montre($("msg-pt"), "Point ajouté.", true); $("pt-nom").value = ""; await chargerRef();
+});
+$("f-com").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const { error } = await sb.from("commerciaux").insert({ entreprise_id: entrepriseId, nom: $("c-nom").value.trim() });
+  if (error) { montre($("msg-com"), "Refusé : " + error.message, false); return; }
+  montre($("msg-com"), "Commercial ajouté.", true); $("c-nom").value = ""; await chargerRef();
+});
+
+async function demarrer(session) {
+  $("connexion").style.display = "none"; $("appli").style.display = "block"; $("deconnexion").style.display = "inline-block";
+  $("m-date").value = iso(new Date()); $("p-date").value = iso(new Date());
+  if (!entrepriseId) { $("sous").textContent = "Entreprise non précisée. Revenez à l'accueil."; return; }
+  const { data: ent } = await sb.from("entreprises").select("nom").eq("id", entrepriseId).single();
+  $("titre").textContent = "Stock — " + (ent?.nom || "");
   $("sous").textContent = "Connecté : " + (session.user.email || "");
-  await charger();
+  await chargerRef(); await chargerStock();
 }
 
 $("formulaire").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  $("bouton").disabled = true;
+  ev.preventDefault(); $("bouton").disabled = true;
   const { data, error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("mdp").value });
   $("bouton").disabled = false;
   if (error) { $("erreur").textContent = "E-mail ou mot de passe incorrect."; return; }
-  $("mdp").value = "";
-  afficher(data.session);
+  $("mdp").value = ""; demarrer(data.session);
 });
-
-$("form-mvt").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const { data: { user } } = await sb.auth.getUser();
-  const { error } = await sb.from("mouvements_stock").insert({
-    entreprise_id: entrepriseId, produit_id: $("mvt-produit").value, type: $("mvt-type").value,
-    quantite: Number($("mvt-qte").value), note: $("mvt-note").value.trim() || null, created_by: user.id,
-  });
-  if (error) { montre($("msg-mvt"), "Enregistrement refusé : " + error.message, false); return; }
-  montre($("msg-mvt"), "Mouvement enregistré.", true);
-  $("mvt-qte").value = ""; $("mvt-note").value = "";
-  await charger();
-});
-
-$("form-prod").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const { error } = await sb.from("produits").insert({
-    entreprise_id: entrepriseId, designation: $("prod-nom").value.trim(),
-    unite: $("prod-unite").value.trim() || "unité", seuil: Number($("prod-seuil").value || 0),
-  });
-  if (error) { montre($("msg-prod"), "Ajout refusé : " + error.message, false); return; }
-  montre($("msg-prod"), "Produit ajouté.", true);
-  $("prod-nom").value = ""; $("prod-seuil").value = "0";
-  await charger();
-});
-
 $("deconnexion").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
-
-sb.auth.getSession().then(({ data }) => {
-  if (data.session) afficher(data.session); else $("connexion").style.display = "block";
-});
+sb.auth.getSession().then(({ data }) => { if (data.session) demarrer(data.session); else $("connexion").style.display = "block"; });
 </script>
 </body>
 </html>
