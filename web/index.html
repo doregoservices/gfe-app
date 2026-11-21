@@ -119,8 +119,8 @@ async function chargerEntreprises(){
 
 function lienStock(e){
   const a = document.createElement("a");
-  a.href = "stock.html?e=" + encodeURIComponent(e.id);
-  a.textContent = e.nom + " — Stock";
+  a.href = "gestion.html?e=" + encodeURIComponent(e.id);
+  a.textContent = e.nom + " — Gestion";
   a.style.color = "#1B1A3C"; a.style.fontWeight = "bold"; a.style.textDecoration = "none";
   return a;
 }

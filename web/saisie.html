@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFE — SAISIE (interface client)</title>
+</head>
+<body>
+<header class="bandeau">
+  <img src="charte/logo_banniere.png" alt="GFE" onerror="this.style.display='none'">
+  <div class="titre" id="titre">SAISIE</div>
+  <div class="droite"><span id="qui"></span><a class="bouton" id="retour" href="gestion.html" style="display:none">← Retour GESTION</a><button id="deco">Déconnexion</button></div>
+</header>
+<main id="principal"><p class="petit">Chargement…</p></main>
+<script type="module">
+import * as C from "./assets/stock-core.js";
+const { sb, $, esc, F, Q, num, txt, rpc, lireTout, aujourdhui, injecterStyle, formulaireConnexion } = C;
+injecterStyle();
+
+const ETAT = { ent: null, ref: null, onglet: null, vue: "client", flash: null };
+const TYPES_AUTRES = ["Stock initial", "Entrée (autre)", "Sortie (autre)", "Transfert", "Casse ou perte", "Don ou échantillon", "Consommation interne", "Inventaire (comptage)"];
+const CATEGORIES = {
+  matiere: ["Matière première", "Marchandise", "Autre stockable"],
+  achetable: ["Matière première", "Marchandise", "Autre stockable"],
+  vendable: ["Produit fini", "Marchandise"],
+  produit: ["Produit fini"],
+};
+
+async function demarrer() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) { formulaireConnexion($("principal"), demarrer); return; }
+  const profil = await lireTout("profils", { filtre: (q) => q.eq("id", data.session.user.id) });
+  $("qui").textContent = data.session.user.email;
+  $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+  const eid = new URLSearchParams(location.search).get("e");
+  const ents = await lireTout("entreprises", { ordre: "nom" });
+  if (!ents.length) { $("principal").innerHTML = "<p>Aucune entreprise rattachée à ce compte.</p>"; return; }
+  if (!eid && ents.length > 1) {
+    $("principal").innerHTML = "<h2>Choisir l'entreprise</h2>" + ents.map((e) => `<p><a href="?e=${e.id}">${esc(e.nom)}</a></p>`).join("");
+    return;
+  }
+  const cible = eid ? ents.find((e) => e.id === eid) : ents[0];
+  if (!cible) { $("principal").innerHTML = "<p>Accès refusé à cette entreprise.</p>"; return; }
+  // Un comptable qui ouvre ce module depuis GESTION voit l'interface client de son entreprise
+  const estComptable = profil[0] && profil[0].role === "comptable" && cible.comptable_id === data.session.user.id;
+  if (estComptable) { ETAT.vue = "comptable"; $("retour").style.display = "inline-block"; $("retour").href = "gestion.html?e=" + cible.id; }
+  ETAT.ent = cible;
+  await chargerTout();
+}
+
+async function chargerTout() {
+  const e = ETAT.ent;
+  $("titre").textContent = "SAISIE — " + e.nom + (e.code ? " (" + e.code + ")" : "");
+  const [sites, coms, vart] = await Promise.all([
+    lireTout("sites", { filtre: (q) => q.eq("entreprise_id", e.id), ordre: "nom" }),
+    lireTout("commerciaux", { filtre: (q) => q.eq("entreprise_id", e.id).eq("actif", true), ordre: "nom" }),
+    lireTout("v_articles_saisie", { filtre: (q) => q.eq("entreprise_id", e.id), ordre: "designation" }),
+  ]);
+  ETAT.ref = { sites, coms, vart };
+  return dessiner();
+}
+
+function onglets() {
+  const e = ETAT.ent;
+  const liste = [];
+  if (e.type_activite !== "commerce") liste.push("PRODUCTION");
+  liste.push("VENTE", "ACHAT", "AUTRES");
+  return liste;
+}
+
+async function dessiner() {
+  const liste = onglets();
+  if (!ETAT.onglet || !liste.includes(ETAT.onglet)) ETAT.onglet = liste[0];
+  const nav = `<nav class="onglets">${liste.map((o) => `<button data-o="${o}" class="${o === ETAT.onglet ? "actif" : ""}">${o}</button>`).join("")}</nav>`;
+  const bandeau = ETAT.vue === "comptable" ? `<p class="bandeau-cible">Vue client de votre entreprise (vous êtes son comptable). Les saisies se font ici comme pour le client.</p>` : "";
+  $("principal").innerHTML = `${bandeau}${nav}<main id="contenu" style="padding:12px 0"></main>`;
+  document.querySelectorAll("nav.onglets button").forEach((b) => b.onclick = () => { ETAT.onglet = b.dataset.o; dessiner(); });
+  await ({ PRODUCTION: ecranProduction, VENTE: ecranVente, ACHAT: ecranAchat, AUTRES: ecranAutres })[ETAT.onglet]();
+  if (ETAT.flash) { $("contenu").insertAdjacentHTML("afterbegin", ETAT.flash); ETAT.flash = null; }
+}
+
+// ---- Helpers d'écran ----
+const opt = (liste, val, label) => `<option value="${esc(val)}">${esc(label)}</option>`;
+const listeArticles = (cats, par = "") => ETAT.ref.vart.filter((a) => cats.includes(a.nature)).map((a) => opt(0, a.id, a.designation + (a.code ? " (" + a.code + ")" : "")));
+const listeSites = (type) => ETAT.ref.sites.filter((s) => !type || type.includes(s.type)).map((s) => opt(0, s.id, s.nom));
+
+function barreControle(lignes) {
+  const ko = lignes.filter((l) => !l.valide).length;
+  return `<p class="petit">Lignes saisies : ${lignes.length} · dont <b style="color:${ko ? "#b3261e" : "#1e7b34"}">${ko} en erreur</b>. Seules les lignes OK sont prises en compte dans le stock.</p>`;
+}
+
+function tableau(entetes, lignes) {
+  return `<div class="wrap"><table><thead><tr>${entetes.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${lignes.join("") || `<tr><td colspan="${entetes.length}">Aucune ligne.</td></tr>`}</tbody></table></div>`;
+}
+
+function ligneControle(l) {
+  return `<td class="ctl ${l.valide ? "" : "ko"}">${l.valide ? "OK" : esc(l.controle)}</td>`;
+}
+
+function bloc(titre, html) { return `<h3>${titre}</h3>${html}`; }
+
+// Affiche le résultat d'une saisie : la ligne est enregistrée, avec son contrôle
+function resultat(r) {
+  return r.valide
+    ? `<div class="msg ok">Ligne enregistrée : OK.</div>`
+    : `<div class="msg ko">Ligne enregistrée en erreur : ${esc(r.controle)}. Elle n'entre pas dans le stock.</div>`;
+}
+
+function champs(opts) { return opts.map((o) => o).join(""); }
+
+// ---- PRODUCTION ----
+async function ecranProduction() {
+  const e = ETAT.ent, nb = e.nb_matieres || 8;
+  const lignes = await lireTout("saisies_production", { select: "*, saisies_production_matieres(*)", filtre: (q) => q.eq("entreprise_id", e.id), ordre: "date_saisie" });
+  const articles = ETAT.ref.vart;
+  const nomA = (id) => (articles.find((a) => a.id === id) || {}).designation || "";
+  const nomS = (id) => (ETAT.ref.sites.find((s) => s.id === id) || {}).nom || "";
+  const matieres = [];
+  for (let k = 1; k <= nb; k++) matieres.push(`
+    <div class="ligne-matiere">
+      <select id="pm-art-${k}"><option value="">— matière ${k} —</option>${listeArticles(CATEGORIES.matiere).join("")}</select>
+      <input id="pm-lot-${k}" placeholder="N° de lot">
+      <input id="pm-qte-${k}" type="number" step="any" placeholder="Quantité consommée">
+    </div>`);
+  $("contenu").innerHTML = `
+    ${bloc("Nouvelle fabrication", `
+      <p class="petit">Une ligne = une fabrication. Les matières réellement sorties du stock sont à saisir ci-dessous. Mode LOT : lot et quantité du lot saisis une seule fois, sur la première fabrication ; mode QUANTITÉ : quantité prélevée sur chaque ligne.</p>
+      <div class="grille">
+        <div><label>Date</label><input id="p-date" type="date" value="${aujourdhui()}"></div>
+        <div><label>Site (usine)</label><select id="p-site">${listeSites(["Usine"]).join("")}</select></div>
+        <div><label>Produit fini</label><select id="p-prod"><option value="">—</option>${listeArticles(CATEGORIES.produit).join("")}</select></div>
+        <div><label>Quantité produite</label><input id="p-qte" type="number" step="any"></div>
+        ${e.opt_lot ? `<div><label>N° de lot (produit)</label><input id="p-lotp"></div>` : ""}
+        ${e.opt_peremption ? `<div><label>Péremption</label><input id="p-per" type="date"></div>` : ""}
+        ${e.opt_saisi_par ? `<div><label>Saisi par</label><input id="p-par"></div>` : ""}
+        <div style="grid-column:span 2"><label>Remarque</label><input id="p-rem"></div>
+      </div>
+      <h3>Matières consommées (${nb} max)</h3>${matieres.join("")}
+      <button class="principal" id="p-ok">Enregistrer la fabrication</button><div id="p-res"></div>`)}
+    ${bloc("Fabrications enregistrées", barreControle(lignes) + tableau(
+      ["Date", "Site", "Produit fini", "Quantité", "Matières (article · lot · quantité)", "Contrôle"],
+      lignes.slice().reverse().map((l) => `<tr class="${l.valide ? "" : "ko"}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(nomA(l.produit_id))}</td><td class="num">${Q(l.quantite)}</td><td>${(l.saisies_production_matieres || []).sort((a, b) => a.rang - b.rang).map((m) => esc(nomA(m.matiere_id)) + " · " + esc(m.lot || "") + " · " + Q(m.quantite)).join("<br>")}</td>${ligneControle(l)}</tr>`)))}`;
+  $("p-ok").onclick = async () => {
+    const matieresArgs = [];
+    for (let k = 1; k <= nb; k++) {
+      const a = $("pm-art-" + k).value;
+      const lot = txt($("pm-lot-" + k).value), q = num($("pm-qte-" + k).value);
+      if (!a && (lot || q !== null)) matieresArgs.push({ article: null, lot, quantite: q });
+      else if (a) matieresArgs.push({ article: a, lot, quantite: q });
+    }
+    try {
+      const r = await rpc("saisir_production", {
+        p_entreprise: e.id, p_date: $("p-date").value, p_site: $("p-site").value, p_produit: txt($("p-prod").value),
+        p_quantite: num($("p-qte").value), p_lot: e.opt_lot ? txt($("p-lotp")?.value) : null,
+        p_peremption: e.opt_peremption ? txt($("p-per")?.value) : null, p_remarque: txt($("p-rem").value),
+        p_saisi_par: e.opt_saisi_par ? txt($("p-par")?.value) : null, p_matieres: matieresArgs,
+      });
+      ETAT.flash = resultat(r);
+      await chargerTout();
+    } catch (err) { ETAT.flash = `<div class="msg ko">${esc(err.message)}</div>`; dessiner(); }
+  };
+}
+
+// ---- VENTE ----
+async function ecranVente() {
+  const e = ETAT.ent;
+  const lignes = await lireTout("saisies_vente", { filtre: (q) => q.eq("entreprise_id", e.id), ordre: "date_saisie" });
+  const nomA = (id) => (ETAT.ref.vart.find((a) => a.id === id) || {}).designation || "";
+  const nomS = (id) => (ETAT.ref.sites.find((s) => s.id === id) || {}).nom || "";
+  const nomC = (id) => (ETAT.ref.coms.find((c) => c.id === id) || {}).nom || "";
+  const prixArt = Object.fromEntries(ETAT.ref.vart.map((a) => [a.id, a.prix_vente]));
+  $("contenu").innerHTML = `
+    ${bloc("Nouvelle vente", `
+      <p class="petit">Prix vide = prix de vente de l'article. Le montant se calcule seul.</p>
+      <div class="grille">
+        <div><label>Date</label><input id="v-date" type="date" value="${aujourdhui()}"></div>
+        <div><label>Point de vente</label><select id="v-pv">${listeSites(["Point de vente"]).join("")}</select></div>
+        ${e.opt_suivi_commercial ? `<div><label>Commercial</label><select id="v-com"><option value="">—</option>${ETAT.ref.coms.map((c) => opt(0, c.id, c.nom)).join("")}</select></div>` : ""}
+        <div><label>Article vendu</label><select id="v-art"><option value="">—</option>${listeArticles(CATEGORIES.vendable).join("")}</select></div>
+        <div><label>Quantité</label><input id="v-qte" type="number" step="any"></div>
+        <div><label>Prix unitaire (F)</label><input id="v-prix" type="number" step="any" placeholder="prix de l'article"></div>
+        <div><label>N° de pièce</label><input id="v-piece"></div>
+        ${e.opt_saisi_par ? `<div><label>Saisi par</label><input id="v-par"></div>` : ""}
+      </div>
+      <button class="principal" id="v-ok">Enregistrer la vente</button><div id="v-res"></div>`)}
+    ${bloc("Ventes enregistrées", barreControle(lignes) + tableau(
+      ["Date", "Point de vente", e.opt_suivi_commercial ? "Commercial" : "", "Article", "Quantité", "Prix", "Montant", "Pièce", "Contrôle"].filter((x) => x !== ""),
+      lignes.slice().reverse().map((l) => `<tr class="${l.valide ? "" : "ko"}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.point_id))}</td>${e.opt_suivi_commercial ? `<td>${esc(nomC(l.commercial_id))}</td>` : ""}<td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td class="num">${F(l.prix_unitaire)}</td><td class="num">${F(l.montant)}</td><td>${esc(l.piece || "")}</td>${ligneControle(l)}</tr>`)))}`;
+  $("v-art").onchange = () => { const p = prixArt[$("v-art").value]; $("v-prix").placeholder = p ? "prix de l'article : " + F(p) : "prix de l'article"; };
+  $("v-ok").onclick = async () => {
+    try {
+      const r = await rpc("saisir_vente", {
+        p_entreprise: e.id, p_date: $("v-date").value, p_point: $("v-pv").value,
+        p_commercial: e.opt_suivi_commercial ? txt($("v-com").value) : null, p_article: txt($("v-art").value),
+        p_quantite: num($("v-qte").value), p_prix: num($("v-prix").value), p_piece: txt($("v-piece").value),
+        p_saisi_par: e.opt_saisi_par ? txt($("v-par")?.value) : null,
+      });
+      ETAT.flash = resultat(r);
+      await chargerTout();
+    } catch (err) { ETAT.flash = `<div class="msg ko">${esc(err.message)}</div>`; dessiner(); }
+  };
+}
+
+// ---- ACHAT ----
+async function ecranAchat() {
+  const e = ETAT.ent;
+  const lignes = await lireTout("saisies_achat", { filtre: (q) => q.eq("entreprise_id", e.id), ordre: "date_saisie" });
+  const nomA = (id) => (ETAT.ref.vart.find((a) => a.id === id) || {}).designation || "";
+  const nomS = (id) => (ETAT.ref.sites.find((s) => s.id === id) || {}).nom || "";
+  $("contenu").innerHTML = `
+    ${bloc("Nouvel achat", `
+      <div class="grille">
+        <div><label>Date</label><input id="a-date" type="date" value="${aujourdhui()}"></div>
+        <div><label>Site de réception</label><select id="a-site">${listeSites().join("")}</select></div>
+        <div><label>Article</label><select id="a-art"><option value="">—</option>${listeArticles(CATEGORIES.achetable).join("")}</select></div>
+        <div><label>Quantité</label><input id="a-qte" type="number" step="any"></div>
+        <div><label>Prix unitaire d'achat (F)</label><input id="a-prix" type="number" step="any"></div>
+        ${e.opt_lot ? `<div><label>N° de lot</label><input id="a-lot"></div>` : ""}
+        ${e.opt_peremption ? `<div><label>Péremption</label><input id="a-per" type="date"></div>` : ""}
+        <div><label>N° de pièce</label><input id="a-piece"></div>
+        ${e.opt_saisi_par ? `<div><label>Saisi par</label><input id="a-par"></div>` : ""}
+      </div>
+      <button class="principal" id="a-ok">Enregistrer l'achat</button><div id="a-res"></div>`)}
+    ${bloc("Achats enregistrés", barreControle(lignes) + tableau(
+      ["Date", "Site", "Article", "Quantité", "Prix unitaire", "Montant", "Pièce", "Contrôle"],
+      lignes.slice().reverse().map((l) => `<tr class="${l.valide ? "" : "ko"}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td class="num">${F(l.prix_unitaire)}</td><td class="num">${F(l.montant)}</td><td>${esc(l.piece || "")}</td>${ligneControle(l)}</tr>`)))}`;
+  $("a-ok").onclick = async () => {
+    try {
+      const r = await rpc("saisir_achat", {
+        p_entreprise: e.id, p_date: $("a-date").value, p_site: $("a-site").value, p_article: txt($("a-art").value),
+        p_quantite: num($("a-qte").value), p_prix: num($("a-prix").value), p_lot: e.opt_lot ? txt($("a-lot")?.value) : null,
+        p_peremption: e.opt_peremption ? txt($("a-per")?.value) : null, p_piece: txt($("a-piece").value),
+        p_saisi_par: e.opt_saisi_par ? txt($("a-par")?.value) : null,
+      });
+      ETAT.flash = resultat(r);
+      await chargerTout();
+    } catch (err) { ETAT.flash = `<div class="msg ko">${esc(err.message)}</div>`; dessiner(); }
+  };
+}
+
+// ---- AUTRES ----
+async function ecranAutres() {
+  const e = ETAT.ent;
+  const lignes = await lireTout("saisies_autres", { filtre: (q) => q.eq("entreprise_id", e.id), ordre: "date_saisie" });
+  const nomA = (id) => (ETAT.ref.vart.find((a) => a.id === id) || {}).designation || "";
+  const nomS = (id) => (ETAT.ref.sites.find((s) => s.id === id) || {}).nom || "";
+  $("contenu").innerHTML = `
+    ${bloc("Autre mouvement", `
+      <p class="petit">Stock initial : à la date de début, motif « Reprise du stock de départ ». Inventaire : saisissez la quantité réellement comptée ; l'écart est calculé seul.</p>
+      <div class="grille">
+        <div><label>Date</label><input id="o-date" type="date" value="${aujourdhui()}"></div>
+        <div><label>Site</label><select id="o-site">${listeSites().join("")}</select></div>
+        <div><label>Type</label><select id="o-type">${TYPES_AUTRES.map((t) => opt(0, t, t)).join("")}</select></div>
+        <div><label>Article</label><select id="o-art"><option value="">—</option>${ETAT.ref.vart.map((a) => opt(0, a.id, a.designation)).join("")}</select></div>
+        <div><label>Quantité (comptée pour un inventaire)</label><input id="o-qte" type="number" step="any"></div>
+        ${e.opt_destination ? `<div><label>Site de destination (transfert)</label><select id="o-dest"><option value="">—</option>${ETAT.ref.sites.map((s) => opt(0, s.id, s.nom)).join("")}</select></div>` : ""}
+        ${e.opt_lot ? `<div><label>N° de lot</label><input id="o-lot"></div>` : ""}
+        ${e.opt_peremption ? `<div><label>Péremption</label><input id="o-per" type="date"></div>` : ""}
+        <div><label>Motif</label><input id="o-motif"></div>
+        <div style="grid-column:span 2"><label>Remarque</label><input id="o-rem"></div>
+        ${e.opt_saisi_par ? `<div><label>Saisi par</label><input id="o-par"></div>` : ""}
+      </div>
+      <button class="principal" id="o-ok">Enregistrer</button><div id="o-res"></div>`)}
+    ${bloc("Autres mouvements enregistrés", barreControle(lignes) + tableau(
+      ["Date", "Site", "Type", "Article", "Quantité", "Destination", "Motif", "Contrôle"],
+      lignes.slice().reverse().map((l) => `<tr class="${l.valide ? "" : "ko"}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(l.type)}</td><td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td>${esc(nomS(l.site_destination_id))}</td><td>${esc(l.motif || "")}</td>${ligneControle(l)}</tr>`)))}`;
+  $("o-ok").onclick = async () => {
+    try {
+      const r = await rpc("saisir_autres", {
+        p_entreprise: e.id, p_date: $("o-date").value, p_site: $("o-site").value, p_type: $("o-type").value,
+        p_article: txt($("o-art").value), p_quantite: num($("o-qte").value),
+        p_destination: e.opt_destination ? txt($("o-dest")?.value) : null, p_lot: e.opt_lot ? txt($("o-lot")?.value) : null,
+        p_peremption: e.opt_peremption ? txt($("o-per")?.value) : null, p_motif: txt($("o-motif").value),
+        p_remarque: txt($("o-rem").value), p_saisi_par: e.opt_saisi_par ? txt($("o-par")?.value) : null,
+      });
+      ETAT.flash = resultat(r);
+      await chargerTout();
+    } catch (err) { ETAT.flash = `<div class="msg ko">${esc(err.message)}</div>`; dessiner(); }
+  };
+}
+
+demarrer().catch((err) => { $("principal").innerHTML = `<div class="msg ko">${esc(err.message)}</div>`; });
+</script>
+</body>
+</html>

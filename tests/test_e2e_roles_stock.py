@@ -1,4 +1,4 @@
-"""Tests de bout en bout : rôles (comptable / entreprise) et module stock.
+"""Tests de bout en bout : rôles (comptable / entreprise). Le stock : voir test_interfaces_stock.py.
 Lancer : python3 tests/test_e2e_roles_stock.py   (site servi sur BASE_URL)
 Les mots de passe de test sont lus dans les variables d'environnement GFE_TEST_PWD.
 """
@@ -20,10 +20,12 @@ def verifier(nom, ok, detail=""):
 
 def connexion(page, email, url):
     page.goto(url)
-    page.fill("#email", email)
-    page.fill("#mdp", PWD)
-    page.click("#bouton")
-    time.sleep(2.5)
+    time.sleep(1.5)
+    if page.locator("#cx-email").count():   # écrans GESTION / SAISIE
+        page.fill("#cx-email", email); page.fill("#cx-mdp", PWD); page.click("#cx-go")
+    else:                                   # accueil (espace client)
+        page.fill("#email", email); page.fill("#mdp", PWD); page.click("#bouton")
+    time.sleep(3)
 
 def deconnexion(page):
     try:
@@ -43,7 +45,7 @@ with sync_playwright() as p:
     verifier("comptable 1 voit GFE, KOUYATE shop et FKS", all(x in liste for x in ["GFE","KOUYATE shop","FKS"]), liste)
     verifier("comptable 1 ne voit pas ROTSEN", "ROTSEN" not in liste)
     verifier("comptable peut créer une entreprise", page.is_visible("#btnCreer"))
-    page.locator("#liste li").filter(has_text="GFE — Stock").get_by_text("Gérer les clients").click()
+    page.locator("#liste li").filter(has_text="GFE — Gestion").get_by_text("Gérer les clients").click()
     time.sleep(1.5)
     verifier("comptable voit ses clients", CLIENT in page.inner_text("#clients"))
     verifier("comptable voit la réattribution", page.is_visible("#btnReattr"))
@@ -69,59 +71,7 @@ with sync_playwright() as p:
     verifier("comptable 2 ne voit pas KOUYATE ni GFE", "KOUYATE" not in page3.inner_text("#liste") and "GFE" not in page3.inner_text("#liste"))
     page3.close()
 
-    # --- 4. Stock : comptable sur GFE Test
-    ctx.clear_cookies(); deconnexion(page)
-    page = ctx.new_page()
-    connexion(page, COMPTABLE, f"{BASE}/stock.html?e={ENT_GFE}")
-    verifier("stock : titre de l'entreprise", "GFE" in page.inner_text("#titre"))
-
-    page.click("nav button[data-onglet=mouvements]") if page.locator("nav button[data-onglet=mouvements]").count() else None
-    page.click("text=Accueil") if page.locator("text=Accueil").count() else None
-
-    # Création d'un article de test (nom unique à chaque passage)
-    nom_art = "Test stock " + datetime.datetime.now().strftime("%H%M%S")
-    page.click("nav button[data-onglet=parametres]")
-    page.fill("#a-nom", nom_art)
-    page.click("#f-art button[type=submit]")
-    time.sleep(2)
-    verifier("article créé", nom_art in page.inner_text("#s-parametres") or nom_art in page.inner_text("body"))
-
-    # Mouvement : stock initial de 10
-    page.click("nav button[data-onglet=mouvements]")
-    time.sleep(1)
-    page.select_option("#m-article", label=nom_art) if page.locator("#m-article option", has_text=nom_art).count() else page.select_option("#m-article", index=1)
-    page.select_option("#m-type", "stock_initial")
-    page.fill("#m-qte", "10")
-    page.click("#f-mvt button[type=submit]")
-    time.sleep(2)
-    verifier("stock initial 10 accepté", "enregistré" in page.inner_text("#msg-mvt"), page.inner_text("#msg-mvt"))
-
-    # Sortie impossible : plus que le stock
-    page.select_option("#m-type", "sortie")
-    page.fill("#m-qte", "25")
-    page.click("#f-mvt button[type=submit]")
-    time.sleep(2)
-    verifier("sortie > stock refusée (règle : pas de stock négatif)",
-             "négatif" in page.inner_text("#msg-mvt").lower() or "refus" in page.inner_text("#msg-mvt").lower(),
-             page.inner_text("#msg-mvt"))
-
-    # Sortie valide
-    page.fill("#m-qte", "4")
-    page.click("#f-mvt button[type=submit]")
-    time.sleep(2)
-    verifier("sortie de 4 acceptée", "enregistré" in page.inner_text("#msg-mvt"), page.inner_text("#msg-mvt"))
-
-    # Accueil : le stock doit être 6
-    page.click("nav button[data-onglet=accueil]")
-    time.sleep(2)
-    verifier("stock restant = 6 sur l'accueil", "6" in page.inner_text("#t-stock"), page.inner_text("#t-stock")[:200])
-    page.screenshot(path="/tmp/capture_stock.png", full_page=True)
-
-    # --- 5. Client ne peut pas modifier KOUYATE (pas son entreprise)
-    ctx2 = nav.new_context(); pc = ctx2.new_page()
-    connexion(pc, CLIENT, f"{BASE}/stock.html?e={ENT_KOUYATE}")
-    verifier("client ne voit pas le nom de KOUYATE sur son stock", "KOUYATE" not in pc.inner_text("#titre"), pc.inner_text("#titre"))
-    pc.close(); ctx2.close()
+    # Le stock est couvert par tests/test_interfaces_stock.py et tests/test_saisie_ecriture.py
 
     nav.close()
 

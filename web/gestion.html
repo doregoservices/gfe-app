@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFE — GESTION (comptable)</title>
+</head>
+<body>
+<header class="bandeau">
+  <img src="charte/logo_banniere.png" alt="GFE" onerror="this.style.display='none'">
+  <div class="titre" id="titre">GESTION</div>
+  <div class="droite"><span id="qui"></span><select id="choixEnt" style="display:none"></select><a class="bouton" href="index.html">Clients et comptes</a><button id="deco">Déconnexion</button></div>
+</header>
+<main id="principal"><p class="petit">Chargement…</p></main>
+<script type="module">
+import * as C from "./assets/stock-core.js";
+const { sb, $, esc, F, Q, num, txt, rpc, lireTout, aujourdhui, injecterStyle, formulaireConnexion, chargerEntreprise, chargerMouvements,
+  couts, stockParArticleSite, etatStock, controleArticles, periode, coutMoyenAchats } = C;
+injecterStyle();
+
+const ETAT = { eid: null, d: null, mvts: null, onglet: "ACCUEIL", flash: "", edition: null, dateRef: aujourdhui(), typePeriode: "Mois" };
+const ONGLETS = ["ACCUEIL", "PARAM", "SITES", "COMMERCIAUX", "FAMILLES", "ARTICLES", "NOMENCLATURE", "STOCK", "POINTS", "IMP"];
+const NATURES = ["Matière première", "Produit fini", "Marchandise", "Autre stockable"];
+const TYPES_SITE = ["Usine", "Point de vente", "Dépôt"];
+const CLASSE = { "Négatif": "neg", "Rupture": "rup", "Sous seuil": "seuil", "OK": "ok" };
+const TYPES_AUTRES = ["Stock initial", "Entrée (autre)", "Sortie (autre)", "Transfert", "Casse ou perte", "Don ou échantillon", "Consommation interne", "Inventaire (comptage)"];
+
+async function demarrer() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) { formulaireConnexion($("principal"), demarrer); return; }
+  const uid = data.session.user.id;
+  $("qui").textContent = data.session.user.email;
+  $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+  const profil = await lireTout("profils", { filtre: (q) => q.eq("id", uid) });
+  if (!profil[0] || profil[0].role !== "comptable") {
+    $("principal").innerHTML = `<div class="msg ko">Cette interface est réservée au comptable. Rendez-vous sur l'<a href="saisie.html">interface de saisie</a>.</div>`; return;
+  }
+  const ents = await lireTout("entreprises", { ordre: "nom" });
+  const sel = $("choixEnt"); sel.style.display = "inline-block";
+  sel.innerHTML = ents.map((e) => `<option value="${e.id}">${esc(e.nom)}</option>`).join("");
+  sel.onchange = () => { location.search = "?e=" + sel.value; };
+  const demande = new URLSearchParams(location.search).get("e");
+  if (!ents.length) { $("principal").innerHTML = "<p>Aucune entreprise. Créez-en depuis « Clients et comptes ».</p>"; return; }
+  ETAT.eid = (demande && ents.some((e) => e.id === demande)) ? demande : ents[0].id;
+  sel.value = ETAT.eid;
+  await charger();
+}
+
+async function charger() {
+  $("principal").innerHTML = `<p class="petit">Chargement des données…</p>`;
+  [ETAT.d, ETAT.mvts] = await Promise.all([chargerEntreprise(ETAT.eid), chargerMouvements(ETAT.eid)]);
+  // Date de référence : la plus récente saisie (sinon aujourd'hui), tant que l'utilisateur n'en a pas choisi une
+  if (!ETAT.dateChoisie) {
+    const dates = [...ETAT.d.prods, ...ETAT.d.ventes, ...ETAT.d.achats, ...ETAT.d.autres].map((l) => l.date_saisie).filter(Boolean).sort();
+    ETAT.dateRef = dates.length ? dates[dates.length - 1] : aujourdhui();
+  }
+  $("titre").textContent = "GESTION — " + ETAT.d.ent.nom + (ETAT.d.ent.code ? " (" + ETAT.d.ent.code + ")" : "");
+  return dessiner();
+}
+
+function lienClient() {
+  return `<a class="bouton" href="saisie.html?e=${ETAT.eid}" style="background:transparent">Voir l'interface client (SAISIE)</a>`;
+}
+
+async function dessiner() {
+  const d = ETAT.d, e = d.ent;
+  const liste = ONGLETS.filter((o) => !(o === "PRODUCTION")); // PRODUCTION est dans SAISIE, PARAM règle son affichage
+  const nav = `<nav class="onglets">${liste.map((o) => `<button data-o="${o}" class="${o === ETAT.onglet ? "actif" : ""}">${o}</button>`).join("")}</nav>`;
+  $("principal").innerHTML = `${nav}<main id="contenu" style="padding:12px 0"></main>`;
+  document.querySelectorAll("nav.onglets button").forEach((b) => b.onclick = () => { ETAT.onglet = b.dataset.o; ETAT.edition = null; dessiner(); });
+  const rendus = { ACCUEIL, PARAM, SITES, COMMERCIAUX, FAMILLES, ARTICLES, NOMENCLATURE, STOCK, POINTS, IMP };
+  $("contenu").innerHTML = `<p class="petit" style="margin-top:10px">${lienClient()}</p>`;
+  await rendus[ETAT.onglet]();
+  if (ETAT.flash) { $("contenu").insertAdjacentHTML("afterbegin", ETAT.flash); ETAT.flash = ""; }
+}
+
+// Calculs partagés
+function ctx() {
+  const d = ETAT.d;
+  const c = couts(d.ent, d.articles, d.achats, d.nomen);
+  const sa = stockParArticleSite(ETAT.mvts);
+  const lignes = d.articles.map((a) => {
+    const site = d.sites.map((s) => sa.get(a.id + "|" + s.id) || 0);
+    const total = site.reduce((x, y) => x + y, 0);
+    const cout = c.retenu.get(a.id) || 0;
+    const seuil = Number(a.seuil || 0);
+    return { a, site, total, cout, valeur: total * cout, etat: etatStock(total, seuil) };
+  });
+  return { c, lignes, ctl: controleArticles(d.articles) };
+}
+
+const nomSite = (id) => (ETAT.d.sites.find((s) => s.id === id) || {}).nom || "";
+const nomArt = (id) => (ETAT.d.articles.find((a) => a.id === id) || {}).designation || "";
+const nomCom = (id) => (ETAT.d.coms.find((c) => c.id === id) || {}).nom || "";
+const flash = (ok, msg) => { ETAT.flash = `<div class="msg ${ok ? "ok" : "ko"}">${esc(msg)}</div>`; };
+const tableau = (entetes, corps) => `<div class="wrap"><table><thead><tr>${entetes.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${corps.join("") || `<tr><td colspan="${entetes.length}">Aucune ligne.</td></tr>`}</tbody></table></div>`;
+const option = (v, l, sel) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(l)}</option>`;
+
+// ---- ACCUEIL ----
+async function ACCUEIL() {
+  const d = ETAT.d, e = d.ent, x = ctx();
+  const valeur = x.lignes.reduce((s, l) => s + l.valeur, 0);
+  const ruptures = x.lignes.filter((l) => l.etat === "Rupture").length;
+  const negatifs = x.lignes.filter((l) => l.etat === "Négatif").length;
+  const sousSeuil = x.lignes.filter((l) => l.etat === "Sous seuil");
+  const erreurs = [...d.achats, ...d.ventes, ...d.autres, ...d.prods].filter((l) => !l.valide).length;
+  const [debut, fin] = periode("Mois", ETAT.dateRef);
+  const dansMois = (l) => l.date_saisie >= debut && l.date_saisie <= fin && l.valide;
+  const ventesMois = d.ventes.filter(dansMois).reduce((s, l) => s + Number(l.montant || 0), 0);
+  const prodMois = d.prods.filter(dansMois).length;
+  const achatsMois = d.achats.filter(dansMois).reduce((s, l) => s + Number(l.montant || 0), 0);
+  const limite = new Date(ETAT.dateRef); limite.setDate(limite.getDate() + Number(e.alerte_peremption_jours || 30));
+  const limiteIso = limite.toISOString().slice(0, 10);
+  const peremptions = d.achats.filter((l) => l.valide && l.peremption && l.peremption >= ETAT.dateRef && l.peremption <= limiteIso);
+  $("contenu").insertAdjacentHTML("beforeend", `
+    <h2>Tableau de bord</h2>
+    <div>
+      <div class="kpi"><b>${F(valeur)} F</b><span>Valeur du stock</span></div>
+      <div class="kpi"><b>${ruptures}</b><span>Ruptures</span></div>
+      <div class="kpi"><b>${sousSeuil.length}</b><span>Sous seuil</span></div>
+      <div class="kpi"><b>${negatifs}</b><span>Stocks négatifs</span></div>
+      <div class="kpi"><b style="color:${erreurs ? "#b3261e" : "#1e7b34"}">${erreurs}</b><span>Lignes en erreur</span></div>
+    </div>
+    <h3>Activité du mois en cours (${esc(debut)} → ${esc(fin)})</h3>
+    <div>
+      <div class="kpi"><b>${F(ventesMois)} F</b><span>Ventes</span></div>
+      <div class="kpi"><b>${F(achatsMois)} F</b><span>Achats</span></div>
+      <div class="kpi"><b>${prodMois}</b><span>Fabrications</span></div>
+    </div>
+    <h3>Articles sous seuil</h3>
+    ${tableau(["Article", "Stock total", "Seuil", "État"], sousSeuil.map((l) => `<tr><td>${esc(l.a.designation)}</td><td class="num">${Q(l.total)}</td><td class="num">${Q(l.a.seuil)}</td><td class="etat-${CLASSE[l.etat]}">${l.etat}</td></tr>`))}
+    <h3>Péremptions proches (${e.alerte_peremption_jours || 30} jours)</h3>
+    ${tableau(["Article", "Lot", "Péremption", "Quantité"], peremptions.map((l) => `<tr><td>${esc(nomArt(l.article_id))}</td><td>${esc(l.lot || "")}</td><td>${esc(l.peremption)}</td><td class="num">${Q(l.quantite)}</td></tr>`))}
+    <p class="petit">Date de référence : ${esc(ETAT.dateRef)} (le tableau de bord se calcule à cette date).</p>`);
+}
+
+// ---- PARAM ----
+async function PARAM() {
+  const e = ETAT.d.ent;
+  const oui = (v) => v ? "checked" : "";
+  $("contenu").insertAdjacentHTML("beforeend", `
+    <h2>Paramètres (PARAM)</h2>
+    <p class="petit">Une colonne désactivée disparaît de SAISIE et de GESTION. Une valeur déjà saisie reste dans les données.</p>
+    <div class="grille">
+      <div><label>Nom de l'entreprise</label><input id="pa-nom" value="${esc(e.nom)}"></div>
+      <div><label>Code (préfixe des articles)</label><input id="pa-code" value="${esc(e.code || "")}"></div>
+      <div><label>Type d'activité</label><select id="pa-type">${option("usine", "Usine (fabrication)", e.type_activite === "usine")}${option("commerce", "Commerce (achat-revente)", e.type_activite === "commerce")}${option("mixte", "Mixte (fabrication et commerce)", e.type_activite === "mixte")}</select></div>
+      <div><label>Méthode de coût</label><select id="pa-cout">${option("cmp", "Coût moyen pondéré (achats)", e.methode_cout === "cmp")}${option("ref", "Prix d'achat de référence", e.methode_cout === "ref")}</select></div>
+      <div><label>Nombre de matières par fabrication (1 à 8)</label><input id="pa-nb" type="number" min="1" max="8" value="${e.nb_matieres}"></div>
+      <div><label>Alerte péremption (jours)</label><input id="pa-alerte" type="number" min="0" value="${e.alerte_peremption_jours}"></div>
+      <div><label>Nom colonne d'analyse 1</label><input id="pa-an1" value="${esc(e.analyse1_nom)}"></div>
+      <div><label>Nom colonne d'analyse 2</label><input id="pa-an2" value="${esc(e.analyse2_nom)}"></div>
+    </div>
+    <h3>Options (OUI / NON)</h3>
+    <div class="grille">
+      <label><input type="checkbox" id="pa-lot" ${oui(e.opt_lot)}> N° de lot</label>
+      <label><input type="checkbox" id="pa-per" ${oui(e.opt_peremption)}> Date de péremption</label>
+      <label><input type="checkbox" id="pa-par" ${oui(e.opt_saisi_par)}> Saisi par</label>
+      <label><input type="checkbox" id="pa-com" ${oui(e.opt_suivi_commercial)}> Suivi commercial</label>
+      <label><input type="checkbox" id="pa-dest" ${oui(e.opt_destination)}> Site de destination (transferts)</label>
+    </div>
+    <p class="petit">Transferts : refusés tant que « Site de destination » n'est pas coché (« Transfert désactivé »).</p>
+    <button class="principal" id="pa-ok">Enregistrer les paramètres</button><div id="pa-res"></div>`);
+  $("pa-ok").onclick = async () => {
+    try {
+      await rpc("modifier_parametres", {
+        p_entreprise: e.id, p_nom: $("pa-nom").value, p_code: $("pa-code").value, p_type_activite: $("pa-type").value,
+        p_methode_cout: $("pa-cout").value, p_opt_lot: $("pa-lot").checked, p_opt_peremption: $("pa-per").checked,
+        p_opt_saisi_par: $("pa-par").checked, p_opt_suivi_commercial: $("pa-com").checked, p_opt_destination: $("pa-dest").checked,
+        p_nb_matieres: Number($("pa-nb").value), p_alerte_jours: Number($("pa-alerte").value),
+        p_analyse1: $("pa-an1").value, p_analyse2: $("pa-an2").value,
+      });
+      flash(true, "Paramètres enregistrés."); await charger();
+    } catch (err) { $("pa-res").innerHTML = `<div class="msg ko">${esc(err.message)}</div>`; }
+  };
+}
+
+// ---- Référentiel simple : tableau + formulaire d'ajout + suppression ----
+function bloc(titre, corps) { $("contenu").insertAdjacentHTML("beforeend", `<h2>${titre}</h2>${corps}`); }
+async function supprimer(table, id, libelle) {
+  if (!confirm("Supprimer « " + libelle + " » ?")) return;
+  const { error } = await sb.from(table).delete().eq("id", id);
+  if (error) { flash(false, "Suppression refusée : " + error.message + " (la ligne est utilisée ailleurs)."); }
+  else flash(true, "Supprimé : " + libelle);
+  await charger();
+}
+const bouton = (id, action) => `<button class="danger" data-del="${id}" data-act="${action}">Supprimer</button>`;
+function brancherSuppressions(table, nomFn) {
+  document.querySelectorAll("button[data-del]").forEach((b) => b.onclick = () => supprimer(table, b.dataset.del, nomFn(b.dataset.del)));
+}
+
+async function SITES() {
+  const d = ETAT.d;
+  bloc("Sites", `
+    <div class="grille">
+      <div><label>Nom du site</label><input id="s-nom"></div>
+      <div><label>Type</label><select id="s-type">${TYPES_SITE.map((t) => option(t, t)).join("")}</select></div>
+      <div><label>Remarque</label><input id="s-rem"></div>
+      <div><button class="principal" id="s-ok">Ajouter le site</button></div>
+    </div>
+    ${tableau(["Site", "Type", "Remarque", ""], d.sites.map((s) => `<tr><td>${esc(s.nom)}</td><td>${esc(s.type)}</td><td>${esc(s.remarque || "")}</td><td>${bouton(s.id)}</td></tr>`))}`);
+  $("s-ok").onclick = async () => {
+    const { error } = await sb.from("sites").insert({ entreprise_id: ETAT.eid, nom: txt($("s-nom").value), type: $("s-type").value, remarque: txt($("s-rem").value) });
+    flash(!error, error ? error.message : "Site ajouté."); await charger();
+  };
+  brancherSuppressions("sites", (id) => d.sites.find((s) => s.id === id).nom);
+}
+
+async function COMMERCIAUX() {
+  const d = ETAT.d;
+  bloc("Commerciaux", `
+    <div class="grille">
+      <div><label>Nom</label><input id="c-nom"></div>
+      <div><label>Site de rattachement</label><select id="c-site"><option value="">—</option>${d.sites.map((s) => option(s.id, s.nom)).join("")}</select></div>
+      <div><label>Téléphone</label><input id="c-tel"></div>
+      <div><button class="principal" id="c-ok">Ajouter le commercial</button></div>
+    </div>
+    ${tableau(["Commercial", "Site", "Téléphone", "Actif", ""], d.coms.map((c) => `<tr><td>${esc(c.nom)}</td><td>${esc(nomSite(c.site_id))}</td><td>${esc(c.telephone || "")}</td><td><input type="checkbox" data-act="${c.id}" ${c.actif ? "checked" : ""}></td><td>${bouton(c.id)}</td></tr>`))}`);
+  $("c-ok").onclick = async () => {
+    const { error } = await sb.from("commerciaux").insert({ entreprise_id: ETAT.eid, nom: txt($("c-nom").value), site_id: txt($("c-site").value), telephone: txt($("c-tel").value), actif: true });
+    flash(!error, error ? error.message : "Commercial ajouté."); await charger();
+  };
+  document.querySelectorAll("input[data-act]").forEach((cb) => cb.onchange = async () => {
+    const { error } = await sb.from("commerciaux").update({ actif: cb.checked }).eq("id", cb.dataset.act);
+    flash(!error, error ? error.message : "Statut mis à jour."); await charger();
+  });
+  brancherSuppressions("commerciaux", (id) => d.coms.find((c) => c.id === id).nom);
+}
+
+async function FAMILLES() {
+  const d = ETAT.d;
+  bloc("Familles", `
+    <div class="grille">
+      <div><label>Nom de la famille</label><input id="f-nom"></div>
+      <div><button class="principal" id="f-ok">Ajouter la famille</button></div>
+    </div>
+    ${tableau(["Famille", ""], d.familles.map((f) => `<tr><td>${esc(f.nom)}</td><td>${bouton(f.id)}</td></tr>`))}`);
+  $("f-ok").onclick = async () => {
+    const { error } = await sb.from("familles").insert({ entreprise_id: ETAT.eid, nom: txt($("f-nom").value) });
+    flash(!error, error ? error.message : "Famille ajoutée."); await charger();
+  };
+  brancherSuppressions("familles", (id) => d.familles.find((f) => f.id === id).nom);
+}
+
+// ---- ARTICLES ----
+async function ARTICLES() {
+  const d = ETAT.d, e = d.ent, x = ctx();
+  const ed = ETAT.edition ? d.articles.find((a) => a.id === ETAT.edition) : null;
+  const v = (k, defaut) => ed ? (ed[k] ?? defaut) : defaut;
+  const lignes = x.lignes.map((l) => {
+    const a = l.a;
+    return `<tr><td>${esc(a.code || "")}</td><td>${esc(a.designation)}${x.ctl.get(a.id) !== "OK" ? ` <span style="color:#b3261e">(${esc(x.ctl.get(a.id))})</span>` : ""}</td><td>${esc((d.familles.find((f) => f.id === a.famille_id) || {}).nom || "")}</td><td>${esc(a.nature)}</td><td>${esc(a.unite)}</td><td class="num">${F(a.prix_achat_ref)}</td><td class="num">${F(a.prix_vente)}</td><td class="num">${Q(a.seuil)}</td><td>${a.nature === "Matière première" ? esc(a.mode) : ""}</td><td class="num">${F(x.c.cmp.get(a.id))}</td><td class="num">${F(x.c.retenu.get(a.id))}</td><td><button class="secondaire" data-ed="${a.id}">Modifier</button> ${bouton(a.id)}</td></tr>`;
+  });
+  bloc("Articles", `
+    <p class="petit">Le code se calcule seul (ex. ${e.code ? esc(e.code) + "-ART-001" : "ART-001"}). Désignations uniques. Mode LOT pour les matières premières consommées par lot.</p>
+    <div class="grille">
+      <div><label>Désignation</label><input id="ar-des" value="${esc(v("designation", ""))}"></div>
+      <div><label>Famille</label><select id="ar-fam"><option value="">—</option>${d.familles.map((f) => option(f.id, f.nom, ed && ed.famille_id === f.id)).join("")}</select></div>
+      <div><label>Nature</label><select id="ar-nat">${NATURES.map((n) => option(n, n, v("nature", "") === n)).join("")}</select></div>
+      <div><label>Unité</label><input id="ar-uni" value="${esc(v("unite", ""))}"></div>
+      <div><label>Prix d'achat de référence (F)</label><input id="ar-pa" type="number" step="any" value="${v("prix_achat_ref", "")}"></div>
+      <div><label>Prix de vente (F)</label><input id="ar-pv" type="number" step="any" value="${v("prix_vente", "")}"></div>
+      <div><label>Seuil d'alerte</label><input id="ar-seuil" type="number" step="any" value="${v("seuil", "")}"></div>
+      <div><label>Mode de consommation (matière)</label><select id="ar-mode">${["QUANTITÉ", "LOT"].map((m) => option(m, m, v("mode", "QUANTITÉ") === m)).join("")}</select></div>
+      <div><button class="principal" id="ar-ok">${ed ? "Enregistrer la modification" : "Ajouter l'article"}</button>${ed ? ` <button class="secondaire" id="ar-annul">Annuler</button>` : ""}</div>
+    </div>
+    ${tableau(["Code", "Désignation", "Famille", "Nature", "Unité", "Prix achat réf.", "Prix vente", "Seuil", "Mode", "CMP", "Coût retenu", ""], lignes)}`);
+  $("ar-ok").onclick = async () => {
+    const corps = { designation: txt($("ar-des").value), famille_id: txt($("ar-fam").value), nature: $("ar-nat").value, unite: txt($("ar-uni").value) || "unité",
+      prix_achat_ref: num($("ar-pa").value) || 0, prix_vente: num($("ar-pv").value) || 0, seuil: num($("ar-seuil").value) || 0, mode: $("ar-mode").value };
+    const res = ed ? await sb.from("articles").update(corps).eq("id", ed.id) : await sb.from("articles").insert({ ...corps, entreprise_id: ETAT.eid });
+    if (res.error) { ETAT.edition = ed ? ed.id : null; flash(false, res.error.message.includes("duplicate") ? "Désignation en double : elle existe déjà." : res.error.message); }
+    else { ETAT.edition = null; flash(true, ed ? "Article modifié." : "Article ajouté."); }
+    await charger();
+  };
+  if (ed) $("ar-annul").onclick = () => { ETAT.edition = null; dessiner(); };
+  document.querySelectorAll("button[data-ed]").forEach((b) => b.onclick = () => { ETAT.edition = b.dataset.ed; dessiner(); });
+  brancherSuppressions("articles", (id) => d.articles.find((a) => a.id === id).designation);
+}
+
+// ---- NOMENCLATURE ----
+async function NOMENCLATURE() {
+  const d = ETAT.d, x = ctx();
+  const produits = d.articles.filter((a) => a.nature === "Produit fini");
+  const matieres = d.articles.filter((a) => a.nature !== "Produit fini");
+  // consommation théorique = recette × quantités produites (valides)
+  const produit = new Map();
+  for (const p of d.prods.filter((p) => p.valide)) produit.set(p.produit_id, (produit.get(p.produit_id) || 0) + Number(p.quantite || 0));
+  const lignesNomen = d.nomen.map((n) => {
+    const cout = Number(n.quantite) * (x.c.base.get(n.matiere_id) || 0);
+    return `<tr><td>${esc(nomArt(n.produit_id))}</td><td>${esc(nomArt(n.matiere_id))}</td><td class="num">${Q(n.quantite)}</td><td class="num">${F(cout)}</td><td>${bouton(n.id)}</td></tr>`;
+  });
+  const theorique = produits.flatMap((p) => {
+    const recettes = d.nomen.filter((n) => n.produit_id === p.id);
+    const qte = produit.get(p.id) || 0;
+    return recettes.map((n) => `<tr><td>${esc(p.designation)}</td><td class="num">${Q(qte)}</td><td>${esc(nomArt(n.matiere_id))}</td><td class="num">${Q(Number(n.quantite) * qte)}</td></tr>`);
+  });
+  bloc("Nomenclature (recette pour 1 unité de produit fini)", `
+    <div class="grille">
+      <div><label>Produit fini</label><select id="n-prod">${produits.map((p) => option(p.id, p.designation)).join("")}</select></div>
+      <div><label>Matière</label><select id="n-mat">${matieres.map((m) => option(m.id, m.designation)).join("")}</select></div>
+      <div><label>Quantité par unité</label><input id="n-qte" type="number" step="any"></div>
+      <div><button class="principal" id="n-ok">Ajouter à la recette</button></div>
+    </div>
+    ${tableau(["Produit fini", "Matière", "Quantité / unité", "Coût matière (F)", ""], lignesNomen)}
+    <h3>Consommation théorique (recette × quantités produites)</h3>
+    ${tableau(["Produit fini", "Quantité produite", "Matière", "Consommation théorique"], theorique)}
+    <p class="petit">Ne sert pas au stock : sert à comparer avec le réel.</p>`);
+  $("n-ok").onclick = async () => {
+    const { error } = await sb.from("nomenclature").insert({ entreprise_id: ETAT.eid, produit_id: $("n-prod").value, matiere_id: $("n-mat").value, quantite: num($("n-qte").value) });
+    flash(!error, error ? error.message : "Ligne de recette ajoutée."); await charger();
+  };
+  document.querySelectorAll("button[data-del]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Supprimer cette ligne de recette ?")) return;
+    const { error } = await sb.from("nomenclature").delete().eq("id", b.dataset.del);
+    flash(!error, error ? error.message : "Ligne supprimée."); await charger();
+  });
+}
+
+// ---- STOCK ----
+async function STOCK() {
+  const d = ETAT.d, x = ctx();
+  const sites = d.sites;
+  const totauxSites = sites.map((s, i) => x.lignes.reduce((t, l) => t + l.site[i], 0));
+  const lignes = x.lignes.map((l) => `<tr><td>${esc(l.a.designation)}</td><td>${esc(l.a.nature)}</td><td>${esc(l.a.unite)}</td><td class="num">${Q(l.a.seuil)}</td><td class="num">${F(l.cout)}</td>${l.site.map((q) => `<td class="num">${Q(q)}</td>`).join("")}<td class="num"><b>${Q(l.total)}</b></td><td class="num">${F(l.valeur)}</td><td class="etat-${CLASSE[l.etat]}">${l.etat}</td></tr>`);
+  bloc("Stock par site et total", `
+    <p class="petit">Stock = achats + production − ventes − matières consommées ± autres mouvements ± inventaires (lignes OK uniquement). Aucun stock négatif n'est accepté.</p>
+    ${tableau(["Article", "Nature", "Unité", "Seuil", "Coût retenu (F)", ...sites.map((s) => esc(s.nom)), "Stock total", "Valeur (F)", "État"], lignes)}
+    <p><b>Valeur totale du stock : ${F(x.lignes.reduce((s, l) => s + l.valeur, 0))} F</b></p>`);
+}
+
+// ---- POINTS ----
+async function POINTS() {
+  const d = ETAT.d, x = ctx();
+  const [debut, fin] = periode(ETAT.typePeriode, ETAT.dateRef);
+  const dans = (l) => l.valide && l.date_saisie >= debut && l.date_saisie <= fin;
+  const ventes = d.ventes.filter(dans), achats = d.achats.filter(dans), prods = d.prods.filter(dans), autres = d.autres.filter(dans);
+  const parCom = new Map();
+  for (const v of ventes) { const k = v.commercial_id || ""; parCom.set(k, (parCom.get(k) || 0) + Number(v.montant || 0)); }
+  const parPv = new Map();
+  for (const v of ventes) { const k = v.point_id; const c = parPv.get(k) || { q: 0, m: 0 }; c.q += Number(v.quantite || 0); c.m += Number(v.montant || 0); parPv.set(k, c); }
+  const articles = d.articles.map((a) => {
+    const achat = achats.filter((l) => l.article_id === a.id).reduce((s, l) => s + Number(l.quantite || 0), 0);
+    const prod = prods.filter((p) => p.produit_id === a.id).reduce((s, l) => s + Number(l.quantite || 0), 0);
+    const conso = prods.reduce((s, p) => s + (p.saisies_production_matieres || []).filter((m) => m.matiere_id === a.id).reduce((t, m) => t + Number(m.quantite || 0), 0), 0);
+    const vte = ventes.filter((l) => l.article_id === a.id).reduce((s, l) => s + Number(l.quantite || 0), 0);
+    const vteM = ventes.filter((l) => l.article_id === a.id).reduce((s, l) => s + Number(l.montant || 0), 0);
+    return { a, achat, prod, conso, vte, vteM };
+  }).filter((r) => r.achat || r.prod || r.conso || r.vte);
+  const typesAutres = TYPES_AUTRES.map((t) => { const l = autres.filter((x) => x.type === t); return { t, n: l.length, q: l.reduce((s, y) => s + Number(y.quantite || 0), 0) }; }).filter((r) => r.n);
+  bloc("Points : analyse de la période", `
+    <div class="grille">
+      <div><label>Période</label><select id="po-type">${["Jour", "Semaine", "Mois"].map((t) => option(t, t, t === ETAT.typePeriode)).join("")}</select></div>
+      <div><label>Date de référence</label><input id="po-date" type="date" value="${esc(ETAT.dateRef)}"></div>
+      <div><button class="principal" id="po-ok">Afficher</button></div>
+    </div>
+    <p class="petit">Du ${esc(debut)} au ${esc(fin)}.</p>
+    <h3>Ventes par commercial</h3>
+    ${tableau(["Commercial", "Montant (F)"], [...parCom.entries()].map(([k, m]) => `<tr><td>${k ? esc(nomCom(k)) : "Sans commercial"}</td><td class="num">${F(m)}</td></tr>`))}
+    <h3>Ventes par point de vente</h3>
+    ${tableau(["Point de vente", "Quantité", "Montant (F)"], [...parPv.entries()].map(([k, c]) => `<tr><td>${esc(nomSite(k))}</td><td class="num">${Q(c.q)}</td><td class="num">${F(c.m)}</td></tr>`))}
+    <h3>Par article</h3>
+    ${tableau(["Article", "Achats", "Production", "Matières consommées", "Ventes (qté)", "Ventes (F)"], articles.map((r) => `<tr><td>${esc(r.a.designation)}</td><td class="num">${Q(r.achat)}</td><td class="num">${Q(r.prod)}</td><td class="num">${Q(r.conso)}</td><td class="num">${Q(r.vte)}</td><td class="num">${F(r.vteM)}</td></tr>`))}
+    <h3>Autres mouvements par type</h3>
+    ${tableau(["Type", "Nombre", "Quantité"], typesAutres.map((r) => `<tr><td>${esc(r.t)}</td><td class="num">${r.n}</td><td class="num">${Q(r.q)}</td></tr>`))}`);
+  $("po-ok").onclick = () => { ETAT.typePeriode = $("po-type").value; ETAT.dateRef = $("po-date").value || ETAT.dateRef; ETAT.dateChoisie = true; dessiner(); };
+}
+
+// ---- IMP : toutes les lignes de saisie, avec leur contrôle ----
+async function IMP() {
+  const d = ETAT.d;
+  const toutes = [
+    ...d.prods.map((p) => ({ date: p.date_saisie, type: "PRODUCTION", lib: nomArt(p.produit_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle })),
+    ...d.ventes.map((p) => ({ date: p.date_saisie, type: "VENTE", lib: nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.point_id), v: p.valide, c: p.controle })),
+    ...d.achats.map((p) => ({ date: p.date_saisie, type: "ACHAT", lib: nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle })),
+    ...d.autres.map((p) => ({ date: p.date_saisie, type: "AUTRES", lib: p.type + " · " + nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle })),
+  ].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const erreurs = toutes.filter((l) => !l.v).length;
+  bloc("Journal des saisies (IMP)", `
+    <p class="petit">${toutes.length} lignes, dont <b style="color:${erreurs ? "#b3261e" : "#1e7b34"}">${erreurs} en erreur</b>. Seules les lignes OK entrent dans le stock.</p>
+    ${tableau(["Date", "Onglet", "Détail", "Contrôle"], toutes.map((l) => `<tr class="${l.v ? "" : "ko"}"><td>${esc(l.date)}</td><td>${l.type}</td><td>${esc(l.lib)}</td><td class="ctl ${l.v ? "" : "ko"}">${l.v ? "OK" : esc(l.c)}</td></tr>`))}`);
+}
+
+demarrer().catch((err) => { $("principal").innerHTML = `<div class="msg ko">${esc(err.message)}</div>`; });
+</script>
+</body>
+</html>
