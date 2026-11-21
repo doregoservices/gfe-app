@@ -3,114 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="0; url=web/index.html">
 <title>Global First Engineering — Espace client</title>
-<style>
-  :root{--nuit:#1B1A3C;--rouge:#DC2529;--noir:#000;--blanc:#FFF}
-  *{box-sizing:border-box}
-  body{margin:0;font-family:Arial,Calibri,sans-serif;background:var(--blanc);color:var(--noir);min-height:100vh;display:flex;flex-direction:column}
-  header{background:var(--nuit);padding:18px 24px;display:flex;justify-content:center}
-  header img{height:64px;width:auto;display:block}
-  main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px}
-  .carte{width:min(92vw,400px);border-top:4px solid var(--nuit);background:var(--blanc);box-shadow:0 2px 14px rgba(27,26,60,.12);padding:32px}
-  h1{font-family:Georgia,'Times New Roman',serif;font-weight:700;color:var(--nuit);font-size:22px;margin:0 0 6px}
-  p.sous{margin:0 0 22px;color:#444;font-size:14px}
-  label{display:block;font-size:13px;margin:14px 0 4px;color:var(--nuit);font-weight:bold}
-  input{width:100%;padding:10px 12px;border:1px solid #bfc0cc;border-radius:4px;font-size:15px;font-family:inherit}
-  input:focus{outline:2px solid var(--nuit);outline-offset:0}
-  button{margin-top:20px;width:100%;padding:12px;border:0;border-radius:4px;background:var(--nuit);color:var(--blanc);font-size:15px;font-weight:bold;cursor:pointer;letter-spacing:.3px}
-  button:hover{background:#2b2a5a}
-  button:disabled{opacity:.6;cursor:wait}
-  .erreur{margin-top:12px;color:var(--rouge);font-size:14px;min-height:18px}
-  .zone{display:none}
-  .liste{margin:10px 0 0;padding:0;list-style:none}
-  .liste li{padding:12px 14px;border-left:4px solid var(--nuit);background:#f5f5f9;margin-top:8px;font-size:15px}
-  .lien{background:none;color:var(--nuit);margin-top:18px;padding:0;width:auto;font-weight:normal;text-decoration:underline;font-size:13px}
-  .lien:hover{background:none;color:var(--rouge)}
-  footer{background:var(--nuit);color:#fff;text-align:center;font-size:12px;padding:12px}
-  footer span{color:var(--rouge);letter-spacing:2px;font-size:11px}
-</style>
 </head>
-<body>
-<header><img src="charte/p2_img16.png" alt="Global First Engineering"></header>
-<main>
-<div class="carte">
-  <div id="connexion">
-    <h1>Espace client</h1>
-    <p class="sous">Connectez-vous pour accéder à vos entreprises.</p>
-    <form id="formulaire">
-      <label for="email">Adresse e-mail</label>
-      <input id="email" type="email" autocomplete="username" required>
-      <label for="mdp">Mot de passe</label>
-      <input id="mdp" type="password" autocomplete="current-password" required>
-      <button id="bouton" type="submit">Se connecter</button>
-      <div class="erreur" id="erreur"></div>
-    </form>
-  </div>
-  <div class="zone" id="espace">
-    <h1>Mes entreprises</h1>
-    <p class="sous" id="bienvenue"></p>
-    <ul class="liste" id="liste"></ul>
-    <button class="lien" id="deconnexion">Se déconnecter</button>
-  </div>
-</div>
-</main>
-<footer>GLOBAL FIRST ENGINEERING &nbsp;·&nbsp; <span>L'EXPERTISE QUI PROPULSE VOS AFFAIRES</span></footer>
-<script type="module">
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const SUPABASE_URL = "https://ewcxndlelagtrlshadlj.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3Y3huZGxlbGFndHJsc2hhZGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMjU4NzYsImV4cCI6MjEwMjgwMTg3Nn0.56ORPMKuu-RcbcqVTLuKC3gylOw5jQmXgIb1adXbjCg";
-
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { db: { schema: "gfe" } });
-const $ = (id) => document.getElementById(id);
-
-async function afficherEspace(session) {
-  $("connexion").style.display = "none";
-  $("espace").style.display = "block";
-  $("bienvenue").textContent = "Connecté : " + (session.user.email || "");
-  const { data, error } = await sb.from("entreprises").select("id, nom").order("nom");
-  const liste = $("liste");
-  liste.innerHTML = "";
-  if (error) { liste.innerHTML = "<li>Erreur de chargement.</li>"; return; }
-  if (!data.length) { liste.innerHTML = "<li>Aucune entreprise rattachée à votre compte.</li>"; return; }
-  for (const e of data) {
-    const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.href = "stock.html?e=" + encodeURIComponent(e.id);
-    a.textContent = e.nom + " — Stock";
-    a.style.color = "#1B1A3C"; a.style.fontWeight = "bold"; a.style.textDecoration = "none";
-    li.appendChild(a);
-    liste.appendChild(li);
-  }
-}
-
-function afficherConnexion() {
-  $("espace").style.display = "none";
-  $("connexion").style.display = "block";
-}
-
-$("formulaire").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  $("erreur").textContent = "";
-  $("bouton").disabled = true;
-  const { data, error } = await sb.auth.signInWithPassword({
-    email: $("email").value.trim(),
-    password: $("mdp").value,
-  });
-  $("bouton").disabled = false;
-  if (error) { $("erreur").textContent = "E-mail ou mot de passe incorrect."; return; }
-  $("mdp").value = "";
-  afficherEspace(data.session);
-});
-
-$("deconnexion").addEventListener("click", async () => {
-  await sb.auth.signOut();
-  afficherConnexion();
-});
-
-sb.auth.getSession().then(({ data }) => {
-  if (data.session) afficherEspace(data.session); else afficherConnexion();
-});
-</script>
+<body style="font-family:Arial,sans-serif;text-align:center;padding:40px">
+<p>Redirection vers l'espace client…</p>
+<p><a href="web/index.html">Cliquez ici si rien ne se passe</a></p>
 </body>
 </html>
