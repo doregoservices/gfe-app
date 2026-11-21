@@ -103,15 +103,15 @@ async function ACCUEIL() {
   const ruptures = x.lignes.filter((l) => l.etat === "Rupture").length;
   const negatifs = x.lignes.filter((l) => l.etat === "Négatif").length;
   const sousSeuil = x.lignes.filter((l) => l.etat === "Sous seuil");
-  const erreurs = [...d.achats, ...d.ventes, ...d.autres, ...d.prods].filter((l) => !l.valide).length;
+  const erreurs = [...d.achats, ...d.ventes, ...d.autres, ...d.prods].filter((l) => !l.valide && !l.annulee).length;
   const [debut, fin] = periode("Mois", ETAT.dateRef);
-  const dansMois = (l) => l.date_saisie >= debut && l.date_saisie <= fin && l.valide;
+  const dansMois = (l) => l.date_saisie >= debut && l.date_saisie <= fin && l.valide && !l.annulee;
   const ventesMois = d.ventes.filter(dansMois).reduce((s, l) => s + Number(l.montant || 0), 0);
   const prodMois = d.prods.filter(dansMois).length;
   const achatsMois = d.achats.filter(dansMois).reduce((s, l) => s + Number(l.montant || 0), 0);
   const limite = new Date(ETAT.dateRef); limite.setDate(limite.getDate() + Number(e.alerte_peremption_jours || 30));
   const limiteIso = limite.toISOString().slice(0, 10);
-  const peremptions = d.achats.filter((l) => l.valide && l.peremption && l.peremption >= ETAT.dateRef && l.peremption <= limiteIso);
+  const peremptions = d.achats.filter((l) => l.valide && !l.annulee && l.peremption && l.peremption >= ETAT.dateRef && l.peremption <= limiteIso);
   $("contenu").insertAdjacentHTML("beforeend", `
     <h2>Tableau de bord</h2>
     <div>
@@ -333,7 +333,7 @@ async function STOCK() {
 async function POINTS() {
   const d = ETAT.d, x = ctx();
   const [debut, fin] = periode(ETAT.typePeriode, ETAT.dateRef);
-  const dans = (l) => l.valide && l.date_saisie >= debut && l.date_saisie <= fin;
+  const dans = (l) => l.valide && !l.annulee && l.date_saisie >= debut && l.date_saisie <= fin;
   const ventes = d.ventes.filter(dans), achats = d.achats.filter(dans), prods = d.prods.filter(dans), autres = d.autres.filter(dans);
   const parCom = new Map();
   for (const v of ventes) { const k = v.commercial_id || ""; parCom.set(k, (parCom.get(k) || 0) + Number(v.montant || 0)); }
@@ -370,15 +370,16 @@ async function POINTS() {
 async function IMP() {
   const d = ETAT.d;
   const toutes = [
-    ...d.prods.map((p) => ({ date: p.date_saisie, type: "PRODUCTION", lib: nomArt(p.produit_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle })),
-    ...d.ventes.map((p) => ({ date: p.date_saisie, type: "VENTE", lib: nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.point_id), v: p.valide, c: p.controle })),
-    ...d.achats.map((p) => ({ date: p.date_saisie, type: "ACHAT", lib: nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle })),
-    ...d.autres.map((p) => ({ date: p.date_saisie, type: "AUTRES", lib: p.type + " · " + nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle })),
+    ...d.prods.map((p) => ({ date: p.date_saisie, type: "PRODUCTION", lib: nomArt(p.produit_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle, a: p.annulee, m: p.motif_annulation })),
+    ...d.ventes.map((p) => ({ date: p.date_saisie, type: "VENTE", lib: nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.point_id), v: p.valide, c: p.controle, a: p.annulee, m: p.motif_annulation })),
+    ...d.achats.map((p) => ({ date: p.date_saisie, type: "ACHAT", lib: nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle, a: p.annulee, m: p.motif_annulation })),
+    ...d.autres.map((p) => ({ date: p.date_saisie, type: "AUTRES", lib: p.type + " · " + nomArt(p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(p.site_id), v: p.valide, c: p.controle, a: p.annulee, m: p.motif_annulation })),
   ].sort((a, b) => (a.date < b.date ? -1 : 1));
-  const erreurs = toutes.filter((l) => !l.v).length;
+  const erreurs = toutes.filter((l) => !l.v && !l.a).length;
+  const annulees = toutes.filter((l) => l.a).length;
   bloc("Journal des saisies (IMP)", `
-    <p class="petit">${toutes.length} lignes, dont <b style="color:${erreurs ? "#b3261e" : "#1e7b34"}">${erreurs} en erreur</b>. Seules les lignes OK entrent dans le stock.</p>
-    ${tableau(["Date", "Onglet", "Détail", "Contrôle"], toutes.map((l) => `<tr class="${l.v ? "" : "ko"}"><td>${esc(l.date)}</td><td>${l.type}</td><td>${esc(l.lib)}</td><td class="ctl ${l.v ? "" : "ko"}">${l.v ? "OK" : esc(l.c)}</td></tr>`))}`);
+    <p class="petit">${toutes.length} lignes, dont <b style="color:${erreurs ? "#b3261e" : "#1e7b34"}">${erreurs} en erreur</b> et ${annulees} annulée(s). Seules les lignes OK non annulées entrent dans le stock.</p>
+    ${tableau(["Date", "Onglet", "Détail", "Contrôle"], toutes.map((l) => `<tr class="${l.a ? "annule" : (l.v ? "" : "ko")}"><td>${esc(l.date)}</td><td>${l.type}</td><td>${esc(l.lib)}</td><td class="ctl ${l.v && !l.a ? "" : "ko"}">${l.a ? "Annulée : " + esc(l.m || "") : (l.v ? "OK" : esc(l.c))}</td></tr>`))}`);
 }
 
 demarrer().catch((err) => { $("principal").innerHTML = `<div class="msg ko">${esc(err.message)}</div>`; });

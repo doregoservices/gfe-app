@@ -75,6 +75,12 @@ async function dessiner() {
   const bandeau = ETAT.vue === "comptable" ? `<p class="bandeau-cible">Vue client de votre entreprise (vous êtes son comptable). Les saisies se font ici comme pour le client.</p>` : "";
   $("principal").innerHTML = `${bandeau}${nav}<main id="contenu" style="padding:12px 0"></main>`;
   document.querySelectorAll("nav.onglets button").forEach((b) => b.onclick = () => { ETAT.onglet = b.dataset.o; dessiner(); });
+  $("contenu").onclick = (ev) => {
+    const b = ev.target.closest("button[data-ann],button[data-an]");
+    if (!b) return;
+    if (b.dataset.ann) { const [table, id] = b.dataset.ann.split("|"); return annulerLigne(table, id); }
+    return enregistrerAnalyse(b.dataset.an);
+  };
   await ({ PRODUCTION: ecranProduction, VENTE: ecranVente, ACHAT: ecranAchat, AUTRES: ecranAutres })[ETAT.onglet]();
   if (ETAT.flash) { $("contenu").insertAdjacentHTML("afterbegin", ETAT.flash); ETAT.flash = null; }
 }
@@ -85,16 +91,76 @@ const listeArticles = (cats, par = "") => ETAT.ref.vart.filter((a) => cats.inclu
 const listeSites = (type) => ETAT.ref.sites.filter((s) => !type || type.includes(s.type)).map((s) => opt(0, s.id, s.nom));
 
 function barreControle(lignes) {
-  const ko = lignes.filter((l) => !l.valide).length;
-  return `<p class="petit">Lignes saisies : ${lignes.length} · dont <b style="color:${ko ? "#b3261e" : "#1e7b34"}">${ko} en erreur</b>. Seules les lignes OK sont prises en compte dans le stock.</p>`;
+  const ko = lignes.filter((l) => !l.valide && !l.annulee).length;
+  const an = lignes.filter((l) => l.annulee).length;
+  return `<p class="petit">Lignes saisies : ${lignes.length} · dont <b style="color:${ko ? "#b3261e" : "#1e7b34"}">${ko} en erreur</b> · ${an} annulée(s). Seules les lignes OK non annulées sont prises en compte dans le stock.</p>`;
 }
 
 function tableau(entetes, lignes) {
   return `<div class="wrap"><table><thead><tr>${entetes.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${lignes.join("") || `<tr><td colspan="${entetes.length}">Aucune ligne.</td></tr>`}</tbody></table></div>`;
 }
 
+// Classe de ligne : annulée (barrée), en erreur (rouge), ou OK
+const classeLigne = (l) => (l.annulee ? "annule" : (l.valide ? "" : "ko"));
+
+// Contrôle : OK, erreur GFE, ou annulation avec son motif
 function ligneControle(l) {
+  if (l.annulee) return `<td class="ctl">Annulée : ${esc(l.motif_annulation || "")}</td>`;
   return `<td class="ctl ${l.valide ? "" : "ko"}">${l.valide ? "OK" : esc(l.controle)}</td>`;
+}
+
+// Bouton d'annulation : toute ligne non encore annulée
+function actionAnnuler(table, l) {
+  return `<td class="act">${l.annulee ? "" : `<button class="danger" data-ann="${table}|${l.id}">Annuler</button>`}</td>`;
+}
+
+// Motif obligatoire pour toute annulation (fenêtre modale)
+function demanderMotif(titre) {
+  return new Promise((resoudre) => {
+    const d = document.createElement("dialog");
+    d.innerHTML = `<form method="dialog" style="min-width:320px">
+      <h3 style="margin-top:0">${esc(titre)}</h3>
+      <p class="petit">La ligne reste visible, barrée. Son effet sur le stock est retiré.</p>
+      <label>Motif de l'annulation (obligatoire)</label><input id="dl-motif" style="width:100%">
+      <div style="margin-top:14px;text-align:right">
+        <button class="principal" value="ok">Annuler la ligne</button>
+        <button class="secondaire" value="non" formnovalidate>Retour</button>
+      </div></form>`;
+    document.body.appendChild(d);
+    d.addEventListener("close", () => {
+      const motif = d.querySelector("#dl-motif").value.trim();
+      const ok = d.returnValue === "ok" && motif !== "";
+      d.remove();
+      resoudre(ok ? motif : null);
+    });
+    d.showModal();
+    d.querySelector("#dl-motif").focus();
+  });
+}
+
+async function annulerLigne(table, id) {
+  const motif = await demanderMotif("Annuler cette ligne");
+  if (!motif) return;
+  try {
+    await rpc("annuler_saisie", { p_table: table, p_id: id, p_motif: motif });
+    ETAT.flash = `<div class="msg ok">Ligne annulée. Son effet sur le stock est retiré ; la ligne reste visible.</div>`;
+    await chargerTout();
+  } catch (err) {
+    ETAT.flash = `<div class="msg ko">Annulation refusée : ${esc(err.message)}</div>`;
+    dessiner();
+  }
+}
+
+// Colonnes d'analyse (PARAM B25/B26) : saisies par le comptable seulement
+async function enregistrerAnalyse(id) {
+  try {
+    await rpc("definir_analyse", { p_production: id, p_a1: num($("an1-" + id).value), p_a2: num($("an2-" + id).value) });
+    ETAT.flash = `<div class="msg ok">Analyses enregistrées.</div>`;
+    await chargerTout();
+  } catch (err) {
+    ETAT.flash = `<div class="msg ko">${esc(err.message)}</div>`;
+    dessiner();
+  }
 }
 
 function bloc(titre, html) { return `<h3>${titre}</h3>${html}`; }
@@ -113,6 +179,9 @@ async function ecranProduction() {
   const e = ETAT.ent, nb = e.nb_matieres || 8;
   const lignes = await lireTout("saisies_production", { select: "*, saisies_production_matieres(*)", filtre: (q) => q.eq("entreprise_id", e.id), ordre: "date_saisie" });
   const articles = ETAT.ref.vart;
+  const vueComptable = ETAT.vue === "comptable";
+  const colsAnalyse = (l) => !vueComptable ? "" : `<td><input id="an1-${l.id}" type="number" step="any" value="${l.analyse1 ?? ""}" style="width:90px"${l.annulee ? " disabled" : ""}></td><td><input id="an2-${l.id}" type="number" step="any" value="${l.analyse2 ?? ""}" style="width:90px"${l.annulee ? " disabled" : ""}></td>`;
+  const actionProd = (l) => `<td class="act">${vueComptable && !l.annulee ? `<button class="secondaire" data-an="${l.id}">Enregistrer analyses</button> ` : ""}${l.annulee ? "" : `<button class="danger" data-ann="saisies_production|${l.id}">Annuler</button>`}</td>`;
   const nomA = (id) => (articles.find((a) => a.id === id) || {}).designation || "";
   const nomS = (id) => (ETAT.ref.sites.find((s) => s.id === id) || {}).nom || "";
   const matieres = [];
@@ -138,8 +207,8 @@ async function ecranProduction() {
       <h3>Matières consommées (${nb} max)</h3>${matieres.join("")}
       <button class="principal" id="p-ok">Enregistrer la fabrication</button><div id="p-res"></div>`)}
     ${bloc("Fabrications enregistrées", barreControle(lignes) + tableau(
-      ["Date", "Site", "Produit fini", "Quantité", "Matières (article · lot · quantité)", "Contrôle"],
-      lignes.slice().reverse().map((l) => `<tr class="${l.valide ? "" : "ko"}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(nomA(l.produit_id))}</td><td class="num">${Q(l.quantite)}</td><td>${(l.saisies_production_matieres || []).sort((a, b) => a.rang - b.rang).map((m) => esc(nomA(m.matiere_id)) + " · " + esc(m.lot || "") + " · " + Q(m.quantite)).join("<br>")}</td>${ligneControle(l)}</tr>`)))}`;
+      ["Date", "Site", "Produit fini", "Quantité", "Matières (article · lot · quantité)", ...(vueComptable ? [esc(e.analyse1_nom), esc(e.analyse2_nom)] : []), "Contrôle", ""],
+      lignes.slice().reverse().map((l) => `<tr class="${classeLigne(l)}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(nomA(l.produit_id))}</td><td class="num">${Q(l.quantite)}</td><td>${(l.saisies_production_matieres || []).sort((a, b) => a.rang - b.rang).map((m) => esc(nomA(m.matiere_id)) + " · " + esc(m.lot || "") + " · " + Q(m.quantite)).join("<br>")}</td>${colsAnalyse(l)}${ligneControle(l)}${actionProd(l)}</tr>`)))}`;
   $("p-ok").onclick = async () => {
     const matieresArgs = [];
     for (let k = 1; k <= nb; k++) {
@@ -184,8 +253,8 @@ async function ecranVente() {
       </div>
       <button class="principal" id="v-ok">Enregistrer la vente</button><div id="v-res"></div>`)}
     ${bloc("Ventes enregistrées", barreControle(lignes) + tableau(
-      ["Date", "Point de vente", e.opt_suivi_commercial ? "Commercial" : "", "Article", "Quantité", "Prix", "Montant", "Pièce", "Contrôle"].filter((x) => x !== ""),
-      lignes.slice().reverse().map((l) => `<tr class="${l.valide ? "" : "ko"}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.point_id))}</td>${e.opt_suivi_commercial ? `<td>${esc(nomC(l.commercial_id))}</td>` : ""}<td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td class="num">${F(l.prix_unitaire)}</td><td class="num">${F(l.montant)}</td><td>${esc(l.piece || "")}</td>${ligneControle(l)}</tr>`)))}`;
+      ["Date", "Point de vente", e.opt_suivi_commercial ? "Commercial" : "", "Article", "Quantité", "Prix", "Montant", "Pièce", "Contrôle", ""].filter((x) => x !== ""),
+      lignes.slice().reverse().map((l) => `<tr class="${classeLigne(l)}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.point_id))}</td>${e.opt_suivi_commercial ? `<td>${esc(nomC(l.commercial_id))}</td>` : ""}<td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td class="num">${F(l.prix_unitaire)}</td><td class="num">${F(l.montant)}</td><td>${esc(l.piece || "")}</td>${ligneControle(l)}${actionAnnuler("saisies_vente", l)}</tr>`)))}`;
   $("v-art").onchange = () => { const p = prixArt[$("v-art").value]; $("v-prix").placeholder = p ? "prix de l'article : " + F(p) : "prix de l'article"; };
   $("v-ok").onclick = async () => {
     try {
@@ -222,8 +291,8 @@ async function ecranAchat() {
       </div>
       <button class="principal" id="a-ok">Enregistrer l'achat</button><div id="a-res"></div>`)}
     ${bloc("Achats enregistrés", barreControle(lignes) + tableau(
-      ["Date", "Site", "Article", "Quantité", "Prix unitaire", "Montant", "Pièce", "Contrôle"],
-      lignes.slice().reverse().map((l) => `<tr class="${l.valide ? "" : "ko"}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td class="num">${F(l.prix_unitaire)}</td><td class="num">${F(l.montant)}</td><td>${esc(l.piece || "")}</td>${ligneControle(l)}</tr>`)))}`;
+      ["Date", "Site", "Article", "Quantité", "Prix unitaire", "Montant", "Pièce", "Contrôle", ""],
+      lignes.slice().reverse().map((l) => `<tr class="${classeLigne(l)}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td class="num">${F(l.prix_unitaire)}</td><td class="num">${F(l.montant)}</td><td>${esc(l.piece || "")}</td>${ligneControle(l)}${actionAnnuler("saisies_achat", l)}</tr>`)))}`;
   $("a-ok").onclick = async () => {
     try {
       const r = await rpc("saisir_achat", {
@@ -262,8 +331,8 @@ async function ecranAutres() {
       </div>
       <button class="principal" id="o-ok">Enregistrer</button><div id="o-res"></div>`)}
     ${bloc("Autres mouvements enregistrés", barreControle(lignes) + tableau(
-      ["Date", "Site", "Type", "Article", "Quantité", "Destination", "Motif", "Contrôle"],
-      lignes.slice().reverse().map((l) => `<tr class="${l.valide ? "" : "ko"}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(l.type)}</td><td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td>${esc(nomS(l.site_destination_id))}</td><td>${esc(l.motif || "")}</td>${ligneControle(l)}</tr>`)))}`;
+      ["Date", "Site", "Type", "Article", "Quantité", "Destination", "Motif", "Contrôle", ""],
+      lignes.slice().reverse().map((l) => `<tr class="${classeLigne(l)}"><td>${esc(l.date_saisie)}</td><td>${esc(nomS(l.site_id))}</td><td>${esc(l.type)}</td><td>${esc(nomA(l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td>${esc(nomS(l.site_destination_id))}</td><td>${esc(l.motif || "")}</td>${ligneControle(l)}${actionAnnuler("saisies_autres", l)}</tr>`)))}`;
   $("o-ok").onclick = async () => {
     try {
       const r = await rpc("saisir_autres", {

@@ -191,6 +191,8 @@ export const STYLE = `
   .carte-connexion input{width:100%} .carte-connexion button{width:100%;margin-top:14px}
   .ligne-matiere{display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px;margin-bottom:6px}
   .cache{display:none !important} .wrap{overflow-x:auto}
+  tr.annule td:not(.ctl):not(.act){color:#777;text-decoration:line-through} tr.annule td.ctl{color:#555;font-weight:normal} td.act{white-space:nowrap}
+  dialog{border:0;border-radius:6px;padding:20px;box-shadow:0 4px 24px rgba(0,0,0,.25)} dialog::backdrop{background:rgba(27,26,60,.45)}
   .bandeau-cible{background:#fff4d6;border:1px solid #e0b64a;padding:6px 12px;font-size:13px;margin:0 0 10px}
   @media print{header.bandeau,nav.onglets,.noprint{display:none}}
 `;
