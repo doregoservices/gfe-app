@@ -42,7 +42,7 @@ async function demarrer() {
   const cible = eid ? ents.find((e) => e.id === eid) : ents[0];
   if (!cible) { $("principal").innerHTML = "<p>Accès refusé à cette entreprise.</p>"; return; }
   // Un comptable qui ouvre ce module depuis GESTION voit l'interface client de son entreprise
-  const estComptable = profil[0] && profil[0].role === "comptable" && cible.comptable_id === data.session.user.id;
+  const estComptable = profil[0] && ["comptable","chef_comptable","chef_cabinet"].includes(profil[0].role) && (cible.comptable_id === data.session.user.id || ["chef_comptable","chef_cabinet"].includes(profil[0].role));
   if (estComptable) { ETAT.vue = "comptable"; $("retour").style.display = "inline-block"; $("retour").href = "gestion.html?e=" + cible.id; }
   ETAT.ent = cible;
   await chargerTout();

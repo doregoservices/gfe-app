@@ -32,7 +32,7 @@ async function demarrer() {
   $("qui").textContent = data.session.user.email;
   $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
   const profil = await lireTout("profils", { filtre: (q) => q.eq("id", uid) });
-  if (!profil[0] || profil[0].role !== "comptable") {
+  if (!profil[0] || !["comptable","chef_comptable","chef_cabinet"].includes(profil[0].role) || profil[0].bloque) {
     $("principal").innerHTML = `<div class="msg ko">Cette interface est réservée au comptable. Rendez-vous sur l'<a href="saisie.html">interface de saisie</a>.</div>`; return;
   }
   const ents = await lireTout("entreprises", { ordre: "nom" });

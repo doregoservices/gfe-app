@@ -231,9 +231,11 @@ async function afficherEspace(session){
   texte($("bienvenue"), "Connecté : " + (session.user.email || ""));
   let role = "entreprise";
   try { role = await rpc("mon_role", {}); } catch(e){ /* repli : client */ }
-  texte($("role"), role === "comptable" ? "Cabinet GFE · compte comptable" : "Compte client");
+  const libelles = { chef_cabinet: "Cabinet GFE · chef du cabinet", chef_comptable: "Cabinet GFE · chef comptable", comptable: "Cabinet GFE · compte comptable", bloque: "Compte bloqué" };
+  texte($("role"), libelles[role] || "Compte client");
+  if (role === "bloque") { $("espace").innerHTML = "<p class=\"msg ko\">Ce compte est bloqué. Adressez-vous au cabinet GFE.</p>"; return; }
   // Comptable : toujours la page GESTION. Client : toujours la page SAISIE de son entreprise.
-  if (role === "comptable") { location.replace("gestion.html"); return; }
+  if (["comptable","chef_comptable","chef_cabinet"].includes(role)) { location.replace("gestion.html"); return; }
   texte($("titre"), "Mes entreprises");
   const liste = $("liste"); liste.innerHTML = "";
   const entreprises = await chargerEntreprises();
