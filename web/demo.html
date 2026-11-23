@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFE — Démo (sans serveur)</title>
+<style>
+  :root{--nuit:#1B1A3C;--rouge:#DC2529;--gris:#f3f3f7;--ok:#1e7b34;--ko:#b3261e;--avert:#8a5a00}
+  *{box-sizing:border-box} body{margin:0;font-family:Arial,Calibri,sans-serif;color:#111;background:#fff}
+  header{background:var(--nuit);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header .titre{font-family:Georgia,serif;font-size:19px;font-weight:700}
+  header .droite{margin-left:auto;display:flex;gap:10px;align-items:center;font-size:13px;flex-wrap:wrap}
+  header select,header button{font-size:13px;padding:6px 10px;border-radius:4px;border:1px solid #fff;background:transparent;color:#fff;cursor:pointer}
+  header select option{color:#111}
+  .bandeau{background:#fff4d6;border-bottom:1px solid #e0b64a;padding:8px 20px;font-size:13px}
+  nav.onglets{display:flex;gap:4px;flex-wrap:wrap;background:var(--gris);padding:8px 12px;border-bottom:1px solid #d6d6e0}
+  nav.onglets button{border:0;background:#fff;padding:8px 12px;border-radius:4px 4px 0 0;cursor:pointer;font-size:14px;color:var(--nuit)}
+  nav.onglets button.actif{background:var(--nuit);color:#fff}
+  nav.onglets .sep{width:14px}
+  main{padding:14px 20px}
+  h2{font-family:Georgia,serif;color:var(--nuit);margin:6px 0 10px} h3{color:var(--nuit);margin:16px 0 8px;font-size:16px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0 14px}
+  th,td{border:1px solid #d6d6e0;padding:5px 7px;text-align:left;vertical-align:middle}
+  th{background:var(--nuit);color:#fff} td.num,th.num{text-align:right}
+  tr.ko td{background:#fdecea} tr.annule td{color:#777;text-decoration:line-through}
+  td.ctl{font-weight:bold} td.ctl.ko{color:var(--ko)} td.ok{color:var(--ok)}
+  td.etat-neg,td.etat-rup{color:var(--ko);font-weight:bold} td.etat-seuil{color:var(--avert);font-weight:bold} td.etat-ok{color:var(--ok)}
+  .kpi{display:inline-block;background:var(--gris);border-radius:6px;padding:10px 14px;margin:4px 8px 8px 0;min-width:150px}
+  .kpi b{display:block;font-size:20px;color:var(--nuit)} .kpi span{font-size:12px;color:#444}
+  .grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px 12px;align-items:end}
+  label{font-size:12px;color:var(--nuit);font-weight:bold;display:block;margin-top:6px}
+  input,select{width:100%;padding:6px 8px;border:1px solid #bfc0cc;border-radius:4px;font-size:14px;background:#fffef5}
+  button.principal{background:var(--nuit);color:#fff;border:0;border-radius:4px;padding:8px 14px;font-size:14px;font-weight:bold;cursor:pointer;margin-top:8px}
+  .msg{padding:8px 10px;border-radius:4px;margin:8px 0;font-size:14px} .msg.ok{background:#e7f5ea;color:var(--ok)} .msg.ko{background:#fdecea;color:var(--ko)}
+  .petit{font-size:12px;color:#555} .wrap{overflow-x:auto}
+  .ligne-matiere{display:grid;grid-template-columns:2fr 1fr;gap:6px;margin-bottom:6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="titre">GFE — Démo (sans serveur)</div>
+  <div class="droite">
+    <select id="ent"></select>
+    <button id="reset" title="Remet les données de test d'origine">Réinitialiser les données de test</button>
+  </div>
+</header>
+<div class="bandeau">Démonstration : aucune connexion, aucun compte. Les données sont dans ce navigateur uniquement. Les calculs et contrôles reprennent ceux de l'application.</div>
+<nav class="onglets" id="roles"></nav>
+<nav class="onglets" id="onglets"></nav>
+<main id="contenu"><p class="petit">Chargement…</p></main>
+
+<script>
+// ---------- utilitaires ----------
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const F = (n) => (n == null || n === "" || isNaN(Number(n))) ? "" : Math.round(Number(n)).toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ");
+const Q = (n) => (n == null || n === "" || isNaN(Number(n))) ? "" : Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 3 }).replace(/\u202f|\u00a0/g, " ");
+const aujourdhui = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+const uid = () => "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+const CLE = "gfe-demo-v1";
+let DATA = null;   // { entreprises, sites, commerciaux, articles, nomenclature, ventes, achats, autres, productions }
+const ETAT = { ent: null, role: "gestion", onglet: "ACCUEIL", flash: "", dateRef: null, periode: "Mois" };
+
+const TYPES_AUTRES = ["Stock initial", "Entrée (autre)", "Sortie (autre)", "Transfert", "Casse ou perte", "Don ou échantillon", "Consommation interne", "Inventaire (comptage)"];
+const SORTIES = ["Sortie (autre)", "Casse ou perte", "Don ou échantillon", "Consommation interne"];
+const MATIERES = ["Matière première", "Marchandise", "Autre stockable"];
+const VENDABLES = ["Produit fini", "Marchandise"];
+
+function sauver() { localStorage.setItem(CLE, JSON.stringify(DATA)); }
+
+// ---------- données d'une entreprise ----------
+function D() {
+  const e = ETAT.ent;
+  const f = (t) => DATA[t].filter((x) => x.entreprise_id === e.id);
+  return {
+    ent: e, sites: f("sites"), coms: f("commerciaux"), articles: f("articles"), nomen: f("nomenclature"),
+    ventes: f("ventes"), achats: f("achats"), autres: f("autres"), prods: f("productions"),
+  };
+}
+const nomSite = (d, id) => (d.sites.find((s) => s.id === id) || {}).nom || "";
+const nomArt = (d, id) => (d.articles.find((a) => a.id === id) || {}).designation || "";
+const nomCom = (d, id) => (d.coms.find((c) => c.id === id) || {}).nom || "";
+
+// ---------- calculs (formules du classeur, mêmes règles que la base) ----------
+// Mouvements issus des lignes valides et non annulées
+function mouvements(d) {
+  const ev = []; let seq = 0;
+  const add = (date, site, art, q, inv) => { if (site && art) ev.push({ date, site, art, q: Number(q) || 0, inv, seq: seq++ }); };
+  for (const v of d.ventes) if (v.valide && !v.annulee) add(v.date_saisie, v.point_id, v.article_id, -v.quantite, false);
+  for (const a of d.achats) if (a.valide && !a.annulee) add(a.date_saisie, a.site_id, a.article_id, a.quantite, false);
+  for (const p of d.prods) if (p.valide && !p.annulee) {
+    add(p.date_saisie, p.site_id, p.produit_id, p.quantite, false);
+    for (const m of p.matieres || []) if (m.quantite != null) add(p.date_saisie, p.site_id, m.matiere_id, -m.quantite, false);
+  }
+  for (const o of d.autres) if (o.valide && !o.annulee) {
+    const q = Number(o.quantite) || 0;
+    if (o.type === "Inventaire (comptage)") add(o.date_saisie, o.site_id, o.article_id, q, true);
+    else if (o.type === "Transfert") { add(o.date_saisie, o.site_id, o.article_id, -q, false); add(o.date_saisie, o.site_destination_id, o.article_id, q, false); }
+    else add(o.date_saisie, o.site_id, o.article_id, (o.type === "Stock initial" || o.type === "Entrée (autre)" ? 1 : -1) * q, false);
+  }
+  return ev;
+}
+
+// Stock par article et site, à la fin ; premier stock négatif rencontré (date par date, inventaires dans l'ordre des dates)
+function calculStock(d) {
+  const groupes = new Map();
+  for (const e of mouvements(d)) { const k = e.site + "|" + e.art; if (!groupes.has(k)) groupes.set(k, []); groupes.get(k).push(e); }
+  const stock = new Map(); let neg = null;
+  for (const [k, lst] of groupes) {
+    lst.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.seq - b.seq));
+    let run = 0, i = 0;
+    while (i < lst.length) {
+      const date = lst[i].date; let j = i;
+      while (j < lst.length && lst[j].date === date) j++;
+      for (let x = i; x < j; x++) if (!lst[x].inv) run += lst[x].q;
+      for (let x = i; x < j; x++) if (lst[x].inv) run = lst[x].q;
+      if (run < 0 && !neg) { const [site, art] = k.split("|"); neg = { site, art, date, st: run }; }
+      i = j;
+    }
+    stock.set(k, run);
+  }
+  return { stock, neg };
+}
+
+// CMP et coûts retenus (ARTICLES I, J, K)
+function couts(d) {
+  const m = new Map();
+  for (const a of d.achats) if (a.valide && !a.annulee) { const c = m.get(a.article_id) || { mt: 0, q: 0 }; c.mt += Number(a.montant || 0); c.q += Number(a.quantite || 0); m.set(a.article_id, c); }
+  const cmp = new Map(); for (const [id, c] of m) if (c.q) cmp.set(id, c.mt / c.q);
+  const base = new Map();
+  for (const a of d.articles) base.set(a.id, d.ent.methode_cout === "cmp" && cmp.has(a.id) ? cmp.get(a.id) : Number(a.prix_achat_ref || 0));
+  const retenu = new Map();
+  for (const a of d.articles) {
+    if (a.nature === "Produit fini") retenu.set(a.id, d.nomen.filter((n) => n.produit_id === a.id).reduce((s, n) => s + Number(n.quantite) * (base.get(n.matiere_id) || 0), 0));
+    else retenu.set(a.id, base.get(a.id));
+  }
+  return retenu;
+}
+
+function etat(total, seuil) {
+  if (total < 0) return "Négatif"; if (total === 0) return "Rupture";
+  if (Number(seuil) > 0 && total <= Number(seuil)) return "Sous seuil"; return "OK";
+}
+const CLASSE = { "Négatif": "neg", "Rupture": "rup", "Sous seuil": "seuil", "OK": "ok" };
+
+function tableauStock(d) {
+  const { stock } = calculStock(d);
+  const retenu = couts(d);
+  return d.articles.map((a) => {
+    const site = d.sites.map((s) => stock.get(s.id + "|" + a.id) || 0);
+    const total = site.reduce((x, y) => x + y, 0);
+    const cout = retenu.get(a.id) || 0;
+    return { a, site, total, cout, valeur: total * cout, etat: etat(total, a.seuil) };
+  });
+}
+
+// Période (POINTS) : jour, semaine (lundi à dimanche), mois
+function periode(type, dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const iso = (x) => new Date(x.getTime() - x.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  if (type === "Jour") return [dateStr, dateStr];
+  if (type === "Semaine") { const j = (d.getDay() + 6) % 7; const deb = new Date(d); deb.setDate(d.getDate() - j); const fin = new Date(deb); fin.setDate(deb.getDate() + 6); return [iso(deb), iso(fin)]; }
+  return [iso(new Date(d.getFullYear(), d.getMonth(), 1)), iso(new Date(d.getFullYear(), d.getMonth() + 1, 0))];
+}
+
+// Date de référence : la plus récente saisie
+function dateDeReference(d) {
+  const dates = [...d.ventes, ...d.achats, ...d.autres, ...d.prods].map((l) => l.date_saisie).filter(Boolean).sort();
+  return dates.length ? dates[dates.length - 1] : aujourdhui();
+}
+
+// ---------- contrôles de saisie (mêmes règles que SAISIE) ----------
+// Renvoie le message d'erreur, ou null si la ligne est acceptable
+function controleLigne(d, typ, l) {
+  const sites = Object.fromEntries(d.sites.map((s) => [s.id, s]));
+  const arts = Object.fromEntries(d.articles.map((a) => [a.id, a]));
+  const q = Number(l.quantite);
+  if (!l.date_saisie) return "Date manquante";
+  if (typ === "VENTE") {
+    if (!sites[l.point_id]) return "Point de vente manquant";
+    if (sites[l.point_id].type !== "Point de vente") return "Site non point de vente";
+    if (d.ent.opt_suivi_commercial && !l.commercial_id) return "Commercial manquant";
+    if (!arts[l.article_id]) return "Article manquant";
+    if (!VENDABLES.includes(arts[l.article_id].nature)) return "Article non vendable";
+    if (!(q > 0)) return "Quantité > 0 requise";
+    if (l.prix_unitaire != null && Number(l.prix_unitaire) < 0) return "Prix négatif";
+  }
+  if (typ === "ACHAT") {
+    if (!sites[l.site_id]) return "Site manquant";
+    if (!arts[l.article_id]) return "Article manquant";
+    if (!MATIERES.includes(arts[l.article_id].nature)) return "Article non achetable";
+    if (!(q > 0)) return "Quantité > 0 requise";
+    if (l.prix_unitaire == null || Number(l.prix_unitaire) < 0) return "Prix manquant ou négatif";
+  }
+  if (typ === "AUTRES") {
+    if (!sites[l.site_id]) return "Site manquant";
+    if (!TYPES_AUTRES.includes(l.type)) return "Type inconnu";
+    if (!arts[l.article_id]) return "Article manquant";
+    if (!(q > 0)) return "Quantité > 0 requise";
+    if (l.type === "Transfert") {
+      if (!d.ent.opt_destination) return "Transfert désactivé (PARAM B15 = NON)";
+      if (!l.site_destination_id || !sites[l.site_destination_id]) return "Destination manquante";
+      if (l.site_destination_id === l.site_id) return "Destination identique au site";
+    }
+  }
+  if (typ === "PRODUCTION") {
+    if (d.ent.type_activite === "commerce") return "Module production désactivé";
+    if (!sites[l.site_id] || sites[l.site_id].type !== "Usine") return "Site non usine";
+    if (!arts[l.produit_id] || arts[l.produit_id].nature !== "Produit fini") return "Produit fini manquant";
+    if (!(q > 0)) return "Quantité > 0 requise";
+    for (const m of l.matieres || []) {
+      if (!m.matiere_id) continue;
+      if (!arts[m.matiere_id] || !MATIERES.includes(arts[m.matiere_id].nature)) return "Matière inconnue";
+      if (!(Number(m.quantite) > 0)) return "Quantité consommée manquante";
+    }
+  }
+  return null;
+}
+
+// Ajoute une ligne : refusée (gardée avec son motif) si le contrôle échoue ou si le stock deviendrait négatif
+function enregistrer(typ, champ, ligne) {
+  const d = D();
+  const cle = { VENTE: "ventes", ACHAT: "achats", AUTRES: "autres", PRODUCTION: "productions" }[typ];
+  const l = { id: uid(), entreprise_id: d.ent.id, valide: true, controle: "OK", annulee: false, created_at: new Date().toISOString(), ...ligne };
+  let erreur = controleLigne(d, typ, l);
+  if (!erreur) {
+    DATA[cle].push(l);                          // test provisoire : ligne ajoutée puis retirée si négatif
+    const { neg } = calculStock(D());
+    DATA[cle].pop();
+    if (neg) erreur = `Refusé : stock négatif pour ${nomArt(d, neg.art)} sur ${nomSite(d, neg.site)} le ${neg.date.split("-").reverse().join("/")} (stock résultant : ${Q(neg.st)})`;
+  }
+  l.valide = !erreur; l.controle = erreur || "OK";
+  DATA[cle].push(l); sauver();
+  return l.valide ? "Ligne enregistrée : OK." : "Ligne enregistrée en erreur : " + erreur + ". Elle n'entre pas dans le stock.";
+}
+
+function annuler(cle, id, motif) {
+  const l = DATA[cle].find((x) => x.id === id);
+  if (!l || l.annulee) return "Ligne déjà annulée.";
+  if (!String(motif || "").trim()) return "Motif obligatoire.";
+  const avant = calculStock(D()).neg;
+  l.annulee = true; l.motif_annulation = motif.trim();
+  const apres = calculStock(D()).neg;
+  if (apres && !avant) { l.annulee = false; delete l.motif_annulation; return `Annulation refusée : stock négatif pour ${nomArt(D(), apres.art)} sur ${nomSite(D(), apres.site)} le ${apres.date.split("-").reverse().join("/")}.`; }
+  sauver(); return "Ligne annulée. Son effet sur le stock est retiré ; la ligne reste visible.";
+}
+
+// ---------- affichage ----------
+const tableau = (entetes, lignes) => `<div class="wrap"><table><thead><tr>${entetes.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${lignes.join("") || `<tr><td colspan="${entetes.length}">Aucune ligne.</td></tr>`}</tbody></table></div>`;
+const option = (v, l) => `<option value="${esc(v)}">${esc(l)}</option>`;
+const flash = () => { const f = ETAT.flash; ETAT.flash = ""; return f ? `<div class="msg ${f.ok ? "ok" : "ko"}">${esc(f.t)}</div>` : ""; };
+const setFlash = (t, ok) => { ETAT.flash = { t, ok }; };
+
+function rendu() {
+  const d = D();
+  if (!ETAT.dateRef) ETAT.dateRef = dateDeReference(d);
+  const roles = [["gestion", "Gestion (comptable)"], ["saisie", "Saisie (client)"]];
+  $("roles").innerHTML = roles.map(([k, l]) => `<button data-r="${k}" class="${ETAT.role === k ? "actif" : ""}">${l}</button>`).join("");
+  const ongl = ETAT.role === "gestion" ? ["ACCUEIL", "STOCK", "POINTS", "IMP"] : (d.ent.type_activite === "commerce" ? ["VENTE", "ACHAT", "AUTRES"] : ["PRODUCTION", "VENTE", "ACHAT", "AUTRES"]);
+  if (!ongl.includes(ETAT.onglet)) ETAT.onglet = ongl[0];
+  $("onglets").innerHTML = ongl.map((o) => `<button data-o="${o}" class="${o === ETAT.onglet ? "actif" : ""}">${o}</button>`).join("");
+  $("roles").querySelectorAll("button").forEach((b) => b.onclick = () => { ETAT.role = b.dataset.r; ETAT.onglet = null; ETAT.flash = ""; rendu(); });
+  $("onglets").querySelectorAll("button").forEach((b) => b.onclick = () => { ETAT.onglet = b.dataset.o; ETAT.flash = ""; rendu(); });
+  const fn = ETAT.role === "gestion" ? ({ ACCUEIL, STOCK, POINTS, IMP })[ETAT.onglet] : ({ PRODUCTION, VENTE, ACHAT, AUTRES })[ETAT.onglet];
+  $("contenu").innerHTML = fn(d);
+  bindFormulaire();
+}
+
+// ---- GESTION ----
+function ACCUEIL(d) {
+  const lignes = tableauStock(d);
+  const valeur = lignes.reduce((s, l) => s + l.valeur, 0);
+  const sousSeuil = lignes.filter((l) => l.etat === "Sous seuil");
+  const ruptures = lignes.filter((l) => l.etat === "Rupture").length;
+  const negatifs = lignes.filter((l) => l.etat === "Négatif").length;
+  const erreurs = [...d.ventes, ...d.achats, ...d.autres, ...d.prods].filter((l) => !l.valide && !l.annulee).length;
+  const [debut, fin] = periode("Mois", ETAT.dateRef);
+  const dansMois = (l) => l.valide && !l.annulee && l.date_saisie >= debut && l.date_saisie <= fin;
+  const vMois = d.ventes.filter(dansMois).reduce((s, l) => s + Number(l.montant || 0), 0);
+  const aMois = d.achats.filter(dansMois).reduce((s, l) => s + Number(l.montant || 0), 0);
+  const pMois = d.prods.filter(dansMois).length;
+  return `<h2>Tableau de bord — ${esc(d.ent.nom)}</h2>
+    <div>
+      <div class="kpi"><b>${F(valeur)} F</b><span>Valeur du stock</span></div>
+      <div class="kpi"><b>${ruptures}</b><span>Ruptures</span></div>
+      <div class="kpi"><b>${sousSeuil.length}</b><span>Sous seuil</span></div>
+      <div class="kpi"><b>${negatifs}</b><span>Stocks négatifs</span></div>
+      <div class="kpi"><b style="color:${erreurs ? "#b3261e" : "#1e7b34"}">${erreurs}</b><span>Lignes en erreur</span></div>
+    </div>
+    <h3>Activité du mois (${esc(debut)} → ${esc(fin)})</h3>
+    <div>
+      <div class="kpi"><b>${F(vMois)} F</b><span>Ventes</span></div>
+      <div class="kpi"><b>${F(aMois)} F</b><span>Achats</span></div>
+      <div class="kpi"><b>${pMois}</b><span>Fabrications</span></div>
+    </div>
+    <h3>Articles sous seuil</h3>
+    ${tableau(["Article", "Stock total", "Seuil", "État"], sousSeuil.map((l) => `<tr><td>${esc(l.a.designation)}</td><td class="num">${Q(l.total)}</td><td class="num">${Q(l.a.seuil)}</td><td class="etat-${CLASSE[l.etat]}">${l.etat}</td></tr>`))}
+    <p class="petit">Date de référence : ${esc(ETAT.dateRef)}. Dates de référence modifiables dans POINTS.</p>`;
+}
+
+function STOCK(d) {
+  const lignes = tableauStock(d);
+  const totaux = d.sites.map((s, i) => lignes.reduce((t, l) => t + l.site[i], 0));
+  return `<h2>Stock par site et total</h2>
+    <p class="petit">Stock = achats + production − ventes − matières consommées ± autres mouvements ± inventaires (lignes OK uniquement). Aucun stock négatif n'est accepté.</p>
+    ${tableau(["Article", "Nature", "Unité", "Seuil", "Coût retenu (F)", ...d.sites.map((s) => esc(s.nom)), "Stock total", "Valeur (F)", "État"],
+      lignes.map((l) => `<tr><td>${esc(l.a.designation)}</td><td>${esc(l.a.nature)}</td><td>${esc(l.a.unite)}</td><td class="num">${Q(l.a.seuil)}</td><td class="num">${F(l.cout)}</td>${l.site.map((q) => `<td class="num">${Q(q)}</td>`).join("")}<td class="num"><b>${Q(l.total)}</b></td><td class="num">${F(l.valeur)}</td><td class="etat-${CLASSE[l.etat]}">${l.etat}</td></tr>`))}
+    <p><b>Valeur totale du stock : ${F(lignes.reduce((s, l) => s + l.valeur, 0))} F</b></p>`;
+}
+
+function POINTS(d) {
+  const [debut, fin] = periode(ETAT.periode, ETAT.dateRef);
+  const dans = (l) => l.valide && !l.annulee && l.date_saisie >= debut && l.date_saisie <= fin;
+  const ventes = d.ventes.filter(dans), achats = d.achats.filter(dans), prods = d.prods.filter(dans), autres = d.autres.filter(dans);
+  const parCom = new Map(); for (const v of ventes) { const k = v.commercial_id || ""; parCom.set(k, (parCom.get(k) || 0) + Number(v.montant || 0)); }
+  const parPv = new Map(); for (const v of ventes) { const c = parPv.get(v.point_id) || { q: 0, m: 0 }; c.q += Number(v.quantite || 0); c.m += Number(v.montant || 0); parPv.set(v.point_id, c); }
+  const arts = d.articles.map((a) => ({
+    a,
+    achat: achats.filter((l) => l.article_id === a.id).reduce((s, l) => s + Number(l.quantite || 0), 0),
+    prod: prods.filter((p) => p.produit_id === a.id).reduce((s, l) => s + Number(l.quantite || 0), 0),
+    conso: prods.reduce((s, p) => s + (p.matieres || []).filter((m) => m.matiere_id === a.id).reduce((t, m) => t + Number(m.quantite || 0), 0), 0),
+    vte: ventes.filter((l) => l.article_id === a.id).reduce((s, l) => s + Number(l.quantite || 0), 0),
+    vteM: ventes.filter((l) => l.article_id === a.id).reduce((s, l) => s + Number(l.montant || 0), 0),
+  })).filter((r) => r.achat || r.prod || r.conso || r.vte);
+  const types = TYPES_AUTRES.map((t) => { const l = autres.filter((x) => x.type === t); return { t, n: l.length, q: l.reduce((s, y) => s + Number(y.quantite || 0), 0) }; }).filter((r) => r.n);
+  return `<h2>Points : analyse de la période</h2>
+    <div class="grille">
+      <div><label>Période</label><select id="po-type">${["Jour", "Semaine", "Mois"].map((t) => `<option ${t === ETAT.periode ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+      <div><label>Date de référence</label><input id="po-date" type="date" value="${esc(ETAT.dateRef)}"></div>
+      <div><button class="principal" id="po-ok">Afficher</button></div>
+    </div>
+    <p class="petit">Du ${esc(debut)} au ${esc(fin)}.</p>
+    <h3>Ventes par commercial</h3>
+    ${tableau(["Commercial", "Montant (F)"], [...parCom.entries()].map(([k, m]) => `<tr><td>${k ? esc(nomCom(d, k)) : "Sans commercial"}</td><td class="num">${F(m)}</td></tr>`))}
+    <h3>Ventes par point de vente</h3>
+    ${tableau(["Point de vente", "Quantité", "Montant (F)"], [...parPv.entries()].map(([k, c]) => `<tr><td>${esc(nomSite(d, k))}</td><td class="num">${Q(c.q)}</td><td class="num">${F(c.m)}</td></tr>`))}
+    <h3>Par article</h3>
+    ${tableau(["Article", "Achats", "Production", "Matières consommées", "Ventes (qté)", "Ventes (F)"], arts.map((r) => `<tr><td>${esc(r.a.designation)}</td><td class="num">${Q(r.achat)}</td><td class="num">${Q(r.prod)}</td><td class="num">${Q(r.conso)}</td><td class="num">${Q(r.vte)}</td><td class="num">${F(r.vteM)}</td></tr>`))}
+    <h3>Autres mouvements par type</h3>
+    ${tableau(["Type", "Nombre", "Quantité"], types.map((r) => `<tr><td>${esc(r.t)}</td><td class="num">${r.n}</td><td class="num">${Q(r.q)}</td></tr>`))}`;
+}
+
+function IMP(d) {
+  const toutes = [
+    ...d.prods.map((p) => ({ cle: "productions", id: p.id, date: p.date_saisie, type: "PRODUCTION", lib: nomArt(d, p.produit_id) + " · " + Q(p.quantite) + " · " + nomSite(d, p.site_id), l: p })),
+    ...d.ventes.map((p) => ({ cle: "ventes", id: p.id, date: p.date_saisie, type: "VENTE", lib: nomArt(d, p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(d, p.point_id), l: p })),
+    ...d.achats.map((p) => ({ cle: "achats", id: p.id, date: p.date_saisie, type: "ACHAT", lib: nomArt(d, p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(d, p.site_id), l: p })),
+    ...d.autres.map((p) => ({ cle: "autres", id: p.id, date: p.date_saisie, type: "AUTRES", lib: p.type + " · " + nomArt(d, p.article_id) + " · " + Q(p.quantite) + " · " + nomSite(d, p.site_id), l: p })),
+  ].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const erreurs = toutes.filter((x) => !x.l.valide && !x.l.annulee).length;
+  const annulees = toutes.filter((x) => x.l.annulee).length;
+  return `<h2>Journal des saisies (IMP)</h2>
+    <p class="petit">${toutes.length} lignes, dont <b style="color:${erreurs ? "#b3261e" : "#1e7b34"}">${erreurs} en erreur</b> et ${annulees} annulée(s). Seules les lignes OK non annulées entrent dans le stock.</p>
+    ${tableau(["Date", "Onglet", "Détail", "Contrôle"], toutes.map((x) => `<tr class="${x.l.annulee ? "annule" : (x.l.valide ? "" : "ko")}"><td>${esc(x.date)}</td><td>${x.type}</td><td>${esc(x.lib)}</td><td class="ctl ${x.l.valide && !x.l.annulee ? "ok" : "ko"}">${x.l.annulee ? "Annulée : " + esc(x.l.motif_annulation || "") : (x.l.valide ? "OK" : esc(x.l.controle))}</td></tr>`))}`;
+}
+
+// ---- SAISIE (client) ----
+function barre(lignes) {
+  const ko = lignes.filter((l) => !l.valide && !l.annulee).length, an = lignes.filter((l) => l.annulee).length;
+  return `<p class="petit">Lignes saisies : ${lignes.length} · dont <b style="color:${ko ? "#b3261e" : "#1e7b34"}">${ko} en erreur</b> · ${an} annulée(s).</p>`;
+}
+function actionAnnuler(cle, l) { return `<td>${l.annulee ? "" : `<button data-ann="${cle}|${l.id}" style="font-size:12px;padding:3px 8px;border:1px solid #b3261e;color:#b3261e;background:#fff;border-radius:4px;cursor:pointer">Annuler</button>`}</td>`; }
+const classe = (l) => (l.annulee ? "annule" : (l.valide ? "" : "ko"));
+const ctl = (l) => `<td class="ctl ${l.annulee ? "" : (l.valide ? "ok" : "ko")}">${l.annulee ? "Annulée : " + esc(l.motif_annulation || "") : (l.valide ? "OK" : esc(l.controle))}</td>`;
+const dateInput = (id) => `<input id="${id}" type="date" value="${esc(aujourdhui())}">`;
+
+function PRODUCTION(d) {
+  const nb = d.ent.nb_matieres || 8;
+  const mats = [];
+  for (let k = 1; k <= nb; k++) mats.push(`<div class="ligne-matiere"><select id="pm-art-${k}"><option value="">— matière ${k} —</option>${d.articles.filter((a) => MATIERES.includes(a.nature)).map((a) => option(a.id, a.designation)).join("")}</select><input id="pm-qte-${k}" type="number" step="any" placeholder="Quantité consommée"></div>`);
+  const lignes = d.prods.slice().reverse();
+  return `<h2>Production</h2>
+    <div class="grille">
+      <div><label>Date</label>${dateInput("p-date")}</div>
+      <div><label>Site (usine)</label><select id="p-site">${d.sites.filter((s) => s.type === "Usine").map((s) => option(s.id, s.nom)).join("")}</select></div>
+      <div><label>Produit fini</label><select id="p-prod">${d.articles.filter((a) => a.nature === "Produit fini").map((a) => option(a.id, a.designation)).join("")}</select></div>
+      <div><label>Quantité produite</label><input id="p-qte" type="number" step="any"></div>
+    </div>
+    <h3>Matières consommées (${nb} max)</h3>${mats.join("")}
+    <button class="principal" id="p-ok">Enregistrer la fabrication</button><div id="p-res"></div>
+    <h3>Fabrications enregistrées</h3>${barre(lignes)}
+    ${tableau(["Date", "Site", "Produit fini", "Quantité", "Matières", "Contrôle", ""], lignes.map((l) => `<tr class="${classe(l)}"><td>${esc(l.date_saisie)}</td><td>${esc(nomSite(d, l.site_id))}</td><td>${esc(nomArt(d, l.produit_id))}</td><td class="num">${Q(l.quantite)}</td><td>${(l.matieres || []).map((m) => esc(nomArt(d, m.matiere_id)) + " · " + Q(m.quantite)).join("<br>")}</td>${ctl(l)}${actionAnnuler("productions", l)}</tr>`))}`;
+}
+
+function VENTE(d) {
+  const lignes = d.ventes.slice().reverse();
+  return `<h2>Vente</h2>
+    <p class="petit">Prix vide = prix de vente de l'article. Le montant se calcule seul.</p>
+    <div class="grille">
+      <div><label>Date</label>${dateInput("v-date")}</div>
+      <div><label>Point de vente</label><select id="v-pv">${d.sites.filter((s) => s.type === "Point de vente").map((s) => option(s.id, s.nom)).join("")}</select></div>
+      ${d.ent.opt_suivi_commercial ? `<div><label>Commercial</label><select id="v-com"><option value="">—</option>${d.coms.map((c) => option(c.id, c.nom)).join("")}</select></div>` : ""}
+      <div><label>Article vendu</label><select id="v-art">${d.articles.filter((a) => VENDABLES.includes(a.nature)).map((a) => option(a.id, a.designation)).join("")}</select></div>
+      <div><label>Quantité</label><input id="v-qte" type="number" step="any"></div>
+      <div><label>Prix unitaire (F)</label><input id="v-prix" type="number" step="any" placeholder="prix de l'article"></div>
+      <div><label>N° de pièce</label><input id="v-piece"></div>
+    </div>
+    <button class="principal" id="v-ok">Enregistrer la vente</button><div id="v-res"></div>
+    <h3>Ventes enregistrées</h3>${barre(lignes)}
+    ${tableau(["Date", "Point de vente", d.ent.opt_suivi_commercial ? "Commercial" : "", "Article", "Quantité", "Prix", "Montant", "Pièce", "Contrôle", ""].filter((x) => x !== ""), lignes.map((l) => `<tr class="${classe(l)}"><td>${esc(l.date_saisie)}</td><td>${esc(nomSite(d, l.point_id))}</td>${d.ent.opt_suivi_commercial ? `<td>${esc(nomCom(d, l.commercial_id))}</td>` : ""}<td>${esc(nomArt(d, l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td class="num">${F(l.prix_unitaire)}</td><td class="num">${F(l.montant)}</td><td>${esc(l.piece || "")}</td>${ctl(l)}${actionAnnuler("ventes", l)}</tr>`))}`;
+}
+
+function ACHAT(d) {
+  const lignes = d.achats.slice().reverse();
+  return `<h2>Achat</h2>
+    <div class="grille">
+      <div><label>Date</label>${dateInput("a-date")}</div>
+      <div><label>Site de réception</label><select id="a-site">${d.sites.map((s) => option(s.id, s.nom)).join("")}</select></div>
+      <div><label>Article</label><select id="a-art">${d.articles.filter((a) => MATIERES.includes(a.nature)).map((a) => option(a.id, a.designation)).join("")}</select></div>
+      <div><label>Quantité</label><input id="a-qte" type="number" step="any"></div>
+      <div><label>Prix unitaire d'achat (F)</label><input id="a-prix" type="number" step="any"></div>
+      <div><label>N° de pièce</label><input id="a-piece"></div>
+    </div>
+    <button class="principal" id="a-ok">Enregistrer l'achat</button><div id="a-res"></div>
+    <h3>Achats enregistrés</h3>${barre(lignes)}
+    ${tableau(["Date", "Site", "Article", "Quantité", "Prix unitaire", "Montant", "Pièce", "Contrôle", ""], lignes.map((l) => `<tr class="${classe(l)}"><td>${esc(l.date_saisie)}</td><td>${esc(nomSite(d, l.site_id))}</td><td>${esc(nomArt(d, l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td class="num">${F(l.prix_unitaire)}</td><td class="num">${F(l.montant)}</td><td>${esc(l.piece || "")}</td>${ctl(l)}${actionAnnuler("achats", l)}</tr>`))}`;
+}
+
+function AUTRES(d) {
+  const lignes = d.autres.slice().reverse();
+  return `<h2>Autres mouvements</h2>
+    <p class="petit">Stock initial : motif « Reprise du stock de départ ». Inventaire : saisissez la quantité réellement comptée.</p>
+    <div class="grille">
+      <div><label>Date</label>${dateInput("o-date")}</div>
+      <div><label>Site</label><select id="o-site">${d.sites.map((s) => option(s.id, s.nom)).join("")}</select></div>
+      <div><label>Type</label><select id="o-type">${TYPES_AUTRES.map((t) => option(t, t)).join("")}</select></div>
+      <div><label>Article</label><select id="o-art">${d.articles.map((a) => option(a.id, a.designation)).join("")}</select></div>
+      <div><label>Quantité (comptée pour un inventaire)</label><input id="o-qte" type="number" step="any"></div>
+      <div><label>Site de destination (transfert)</label><select id="o-dest"><option value="">—</option>${d.sites.map((s) => option(s.id, s.nom)).join("")}</select></div>
+      <div><label>Motif</label><input id="o-motif"></div>
+    </div>
+    <button class="principal" id="o-ok">Enregistrer</button><div id="o-res"></div>
+    <h3>Autres mouvements enregistrés</h3>${barre(lignes)}
+    ${tableau(["Date", "Site", "Type", "Article", "Quantité", "Destination", "Motif", "Contrôle", ""], lignes.map((l) => `<tr class="${classe(l)}"><td>${esc(l.date_saisie)}</td><td>${esc(nomSite(d, l.site_id))}</td><td>${esc(l.type)}</td><td>${esc(nomArt(d, l.article_id))}</td><td class="num">${Q(l.quantite)}</td><td>${esc(nomSite(d, l.site_destination_id))}</td><td>${esc(l.motif || "")}</td>${ctl(l)}${actionAnnuler("autres", l)}</tr>`))}`;
+}
+
+// ---------- actions (formulaires et boutons) ----------
+const val = (id) => { const e = $(id); return e ? e.value : ""; };
+const num = (id) => { const v = val(id); return v === "" ? null : Number(v); };
+
+function bindFormulaire() {
+  const onClick = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+  // Enregistrements
+  onClick("p-ok", () => {
+    const d = D();
+    const matieres = [];
+    for (let k = 1; k <= (d.ent.nb_matieres || 8); k++) {
+      const a = val("pm-art-" + k), q = num("pm-qte-" + k);
+      if (a) matieres.push({ matiere_id: a, quantite: q });
+      else if (q !== null) matieres.push({ matiere_id: null, quantite: q });
+    }
+    const msg = enregistrer("PRODUCTION", null, { date_saisie: val("p-date"), site_id: val("p-site"), produit_id: val("p-prod"), quantite: num("p-qte"), matieres });
+    setFlash(msg, msg.includes(": OK")); rendu();
+  });
+  onClick("v-ok", () => {
+    const d = D(); const art = d.articles.find((a) => a.id === val("v-art"));
+    const prix = num("v-prix") ?? (art ? Number(art.prix_vente || 0) : 0);
+    const q = num("v-qte");
+    const msg = enregistrer("VENTE", null, { date_saisie: val("v-date"), point_id: val("v-pv"), commercial_id: d.ent.opt_suivi_commercial ? (val("v-com") || null) : null, article_id: val("v-art"), quantite: q, prix_unitaire: prix, montant: (q || 0) * prix, piece: val("v-piece") });
+    setFlash(msg, msg.includes(": OK")); rendu();
+  });
+  onClick("a-ok", () => {
+    const q = num("a-qte"), p = num("a-prix");
+    const msg = enregistrer("ACHAT", null, { date_saisie: val("a-date"), site_id: val("a-site"), article_id: val("a-art"), quantite: q, prix_unitaire: p, montant: (q || 0) * (p || 0), piece: val("a-piece") });
+    setFlash(msg, msg.includes(": OK")); rendu();
+  });
+  onClick("o-ok", () => {
+    const msg = enregistrer("AUTRES", null, { date_saisie: val("o-date"), site_id: val("o-site"), type: val("o-type"), article_id: val("o-art"), quantite: num("o-qte"), site_destination_id: val("o-dest") || null, motif: val("o-motif") });
+    setFlash(msg, msg.includes(": OK")); rendu();
+  });
+  onClick("po-ok", () => { ETAT.periode = val("po-type"); ETAT.dateRef = val("po-date") || ETAT.dateRef; rendu(); });
+  // Annulations (délégation sur le contenu)
+  $("contenu").onclick = (ev) => {
+    const b = ev.target.closest("button[data-ann]"); if (!b) return;
+    const [cle, id] = b.dataset.ann.split("|");
+    const motif = prompt("Motif de l'annulation (obligatoire) — la ligne reste visible, barrée :");
+    if (motif === null) return;
+    const msg = annuler(cle, id, motif);
+    setFlash(msg, msg.startsWith("Ligne annulée")); rendu();
+  };
+  // Message affiché en tête de contenu
+  const f = flash(); if (f) $("contenu").insertAdjacentHTML("afterbegin", f);
+}
+
+// ---------- démarrage ----------
+async function demarrer() {
+  const stocke = localStorage.getItem(CLE);
+  if (stocke) DATA = JSON.parse(stocke);
+  else { DATA = await (await fetch("demo/data.json")).json(); sauver(); }
+  const sel = $("ent");
+  sel.innerHTML = DATA.entreprises.map((e) => option(e.id, e.nom)).join("");
+  ETAT.ent = DATA.entreprises[0];
+  sel.onchange = () => { ETAT.ent = DATA.entreprises.find((e) => e.id === sel.value); ETAT.dateRef = null; ETAT.onglet = null; ETAT.flash = ""; rendu(); };
+  $("reset").onclick = async () => {
+    if (!confirm("Remettre les données de test d'origine ? Vos saisies de démonstration seront effacées.")) return;
+    DATA = await (await fetch("demo/data.json")).json(); sauver();
+    ETAT.ent = DATA.entreprises.find((e) => e.id === sel.value) || DATA.entreprises[0]; ETAT.dateRef = null; ETAT.flash = ""; rendu();
+  };
+  rendu();
+}
+demarrer().catch((err) => { $("contenu").innerHTML = `<div class="msg ko">${esc(err.message)}</div>`; });
+</script>
+</body>
+</html>
