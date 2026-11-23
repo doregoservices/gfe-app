@@ -117,6 +117,14 @@ async function chargerEntreprises(){
   return data || [];
 }
 
+function lienSaisie(e, libelle){
+  const a = document.createElement("a");
+  a.href = "saisie.html?e=" + encodeURIComponent(e.id);
+  a.textContent = libelle || (e.nom + " — Saisie");
+  a.style.color = "#1B1A3C"; a.style.fontWeight = "bold"; a.style.textDecoration = "none";
+  return a;
+}
+
 function lienStock(e){
   const a = document.createElement("a");
   a.href = "gestion.html?e=" + encodeURIComponent(e.id);
@@ -135,7 +143,11 @@ async function afficherComptable(){
     const li = document.createElement("li");
     const ligne = document.createElement("div");
     ligne.style.display = "flex"; ligne.style.justifyContent = "space-between"; ligne.style.alignItems = "center";
-    ligne.appendChild(lienStock(e));
+    const liens = document.createElement("span");
+    liens.style.display = "flex"; liens.style.gap = "14px";
+    liens.appendChild(lienStock(e));
+    liens.appendChild(lienSaisie(e, "Saisie"));
+    ligne.appendChild(liens);
     const g = document.createElement("button");
     g.className = "lien"; g.style.margin = "0"; g.textContent = "Gérer les clients";
     g.onclick = () => ouvrirGestion(e);
@@ -219,14 +231,14 @@ async function afficherEspace(session){
   texte($("bienvenue"), "Connecté : " + (session.user.email || ""));
   let role = "entreprise";
   try { role = await rpc("mon_role", {}); } catch(e){ /* repli : client */ }
-  texte($("role"), role === "comptable" ? "Compte comptable" : "Compte entreprise");
+  texte($("role"), role === "comptable" ? "Cabinet GFE · compte comptable" : "Compte client");
   if (role === "comptable") { await afficherComptable(); return; }
   texte($("titre"), "Mes entreprises");
   const liste = $("liste"); liste.innerHTML = "";
   const entreprises = await chargerEntreprises();
   if (!entreprises.length) { liste.innerHTML = "<li>Aucune entreprise rattachée à votre compte.</li>"; return; }
   for (const e of entreprises){
-    const li = document.createElement("li"); li.appendChild(lienStock(e)); liste.appendChild(li);
+    const li = document.createElement("li"); li.appendChild(lienSaisie(e)); liste.appendChild(li);
   }
 }
 
