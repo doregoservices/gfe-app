@@ -253,7 +253,13 @@ $("formulaire").addEventListener("submit", async (ev) => {
   $("bouton").disabled = true;
   const { data, error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("mdp").value });
   $("bouton").disabled = false;
-  if (error) { $("erreur").textContent = "E-mail ou mot de passe incorrect."; return; }
+  if (error) {
+    const st = error.status || 0, msg = String(error.message || "");
+    if (st === 429 || /rate|too many/i.test(msg)) $("erreur").textContent = "Trop de tentatives. Attendez quelques minutes puis réessayez.";
+    else if (/invalid login|invalid credentials/i.test(msg) || st === 400) $("erreur").textContent = "E-mail ou mot de passe incorrect (vérifiez l'adresse exacte, avec le +).";
+    else $("erreur").textContent = "Connexion impossible : " + msg + " (code " + st + ")";
+    return;
+  }
   $("mdp").value = "";
   afficherEspace(data.session);
 });
