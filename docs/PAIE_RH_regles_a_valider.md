@@ -66,7 +66,7 @@ Cellules B53 à B62. Le modèle n'applique pas de tranche entre 0 et 75 000 au-d
 | Congé payé | 2,2 jours ouvrables par mois de service effectif | Art. 25.1 | Confirmé par le texte |
 | Majoration congé | +1 jour après 5 ans, +2 jours après 10 ans | Art. 25.2 | Confirmé (sources secondaires) |
 | Congé non pris en fin de contrat | Indemnité compensatrice | Art. 25.8 | Confirmé |
-| Préavis | **Contradiction** : la passation dit « 8 jours ouvriers jusqu'à 6 mois, doublé au-delà » ; un décret de 2026 (n° 2026-198) fixe 8 jours à 4 mois selon la catégorie et l'ancienneté | Passation / décret 2026-198 | **À trancher** : texte du décret à vérifier |
+| Préavis | **Appliqué** : décret n° 2026-198 du 15 avril 2026 (texte du décret, reproduit sur loidici.biz). Il remplace le décret 96-200. La passation (8 jours jusqu'à 6 mois, doublé au-delà) était incomplète ; le décret prévoit aussi 15 jours, 1 à 4 mois selon le mode de paie et la catégorie. | Décret 2026-198 (art. 1 à 4) | Appliqué dans `gfe.rh_bareme_preavis` (migration 0020), dix cas testés |
 | Indemnité de licenciement | 30 % du salaire moyen par année (5 premières années), 35 % (6e à 10e), 40 % au-delà | Passation / décret 2017-210 | Taux confirmés ; seuils à vérifier |
 | Base de l'indemnité | Salaire moyen des 12 derniers mois (salaire global) | Art. 18.16 / décret | À confirmer : inclut-il les primes ? |
 | Ancienneté minimale | Un an de service continu | Passation / décret | À confirmer |
@@ -77,7 +77,7 @@ Cellules B53 à B62. Le modèle n'applique pas de tranche entre 0 et 75 000 au-d
 
 ## 4. Questions à trancher avec le cabinet
 
-1. **Préavis** : quel barème appliquer (décret 2026-198, ou la règle de la passation) ?
+1. ~~Préavis~~ : **réglé** par le décret 2026-198 (appliqué).
 2. **Indemnité de licenciement** : les seuils 5 / 10 ans sont-ils corrects ? Les primes entrent-elles dans la base ?
 3. **Gratification** : la convention collective s'applique-t-elle ? Sinon, quelle règle retenir ?
 4. **Transport** : montant 2026 et régime de l'exonération.
