@@ -67,17 +67,18 @@ Cellules B53 à B62. Le modèle n'applique pas de tranche entre 0 et 75 000 au-d
 | Majoration congé | +1 jour après 5 ans, +2 jours après 10 ans | Art. 25.2 | Confirmé (sources secondaires) |
 | Congé non pris en fin de contrat | Indemnité compensatrice | Art. 25.8 | Confirmé |
 | Préavis | **Appliqué** : décret n° 2026-198 du 15 avril 2026 (texte du décret, reproduit sur loidici.biz). Il remplace le décret 96-200. La passation (8 jours jusqu'à 6 mois, doublé au-delà) était incomplète ; le décret prévoit aussi 15 jours, 1 à 4 mois selon le mode de paie et la catégorie. | Décret 2026-198 (art. 1 à 4) | Appliqué dans `gfe.rh_bareme_preavis` (migration 0020), dix cas testés |
-| Indemnité de licenciement | 30 % du salaire moyen par année (5 premières années), 35 % (6e à 10e), 40 % au-delà | Passation / décret 2017-210 | Taux confirmés ; seuils à vérifier |
+| Indemnité de licenciement | 30 % du salaire moyen par année (5 premières années), 35 % (6e à 10e), 40 % au-delà | **Décret 2017-210, art. 4** (texte vérifié) | Taux et seuils confirmés ; calcul non encore codé |
 | Base de l'indemnité | Salaire moyen des 12 derniers mois (salaire global) | Art. 18.16 / décret | À confirmer : inclut-il les primes ? |
 | Ancienneté minimale | Un an de service continu | Passation / décret | À confirmer |
-| Licenciement abusif | Dommages-intérêts : un mois de salaire brut par année d'ancienneté, entre 3 et 20 mois | Art. 18.15 (sources secondaires) | À vérifier dans le texte |
-| Gratification de fin d'année | Au moins 3/4 du SMIG, au prorata | CCI 1977, art. 44 (passation) | **À confirmer** : la convention collective s'applique-t-elle au cabinet et à ses clients ? |
+| Licenciement abusif | Dommages-intérêts : 1 mois de salaire brut par année d'ancienneté, minimum 3 mois, maximum 20 mois. Le juge constate l'abus. | **Art. 18.15, b)** de la loi 2015-532 (texte vérifié sur plusieurs reproductions de la loi) | **Appliqué** (migration 0021, fonction `gfe.dommages_licenciement_abusif`). Point à confirmer : ancienneté en années complètes (choix retenu). |
+| Gratification de fin d'année | Au moins 3/4 du minimum conventionnel mensuel de la catégorie, au prorata du temps de service (embauche, démission, licenciement compris) | **CCI 1977, art. 53** (texte vérifié) | **Appliqué** (migration 0021, `gfe.gratification_minimum`). Minimum de la 1re catégorie = 75 000 F (SMIG). Les minima des autres catégories doivent être saisis depuis la grille officielle : aucune grille à jour n'a été trouvée en ligne. |
 | Heures et durée | 40 h par semaine hors agriculture | Art. 21.2 | Confirmé |
 | Deux jours de liberté pendant le préavis | 2 jours payés par semaine de préavis | Art. 18.6 | Confirmé |
 
 ## 4. Questions à trancher avec le cabinet
 
 1. ~~Préavis~~ : **réglé** par le décret 2026-198 (appliqué).
+2. ~~Licenciement abusif~~ : **réglé** par l'art. 18.15 (appliqué). ~~Gratification~~ : **réglée** par l'art. 53 CCI 1977 (appliquée) ; grille des minima à saisir.
 2. **Indemnité de licenciement** : les seuils 5 / 10 ans sont-ils corrects ? Les primes entrent-elles dans la base ?
 3. **Gratification** : la convention collective s'applique-t-elle ? Sinon, quelle règle retenir ?
 4. **Transport** : montant 2026 et régime de l'exonération.

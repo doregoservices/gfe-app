@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFE — Paie et RH : aide et calculs</title>
+</head>
+<body>
+<header class="bandeau">
+  <img src="charte/logo_banniere.png" alt="GFE" onerror="this.style.display='none'">
+  <div class="titre">PAIE ET RH : AIDE ET CALCULS</div>
+  <div class="droite"><span id="qui"></span><a class="bouton" href="gestion.html">← GESTION</a><button id="deco">Déconnexion</button></div>
+</header>
+<main id="principal"><p class="petit">Chargement…</p></main>
+<script type="module">
+import { sb, $, esc, F, num, txt, formulaireConnexion, injecterStyle } from "./assets/stock-core.js";
+injecterStyle();
+
+const CATEGORIE_PREAVIS = { "cat1_5": "Catégorie 1 à 5 (ouvriers, employés, agents de maîtrise, techniciens)", "cat6": "Catégorie 6 et plus (cadres)" };
+const MODE_PAIE = { "heure": "Payé à l'heure ou à la journée", "mois": "Payé au mois" };
+
+const AIDE = `
+<section class="bloc">
+  <h2>Comprendre les termes</h2>
+  <table>
+    <tr><th>Terme</th><th>Ce que cela veut dire</th></tr>
+    <tr><td><b>Catégorie</b></td><td>Niveau du salarié dans la convention collective (1re à 6e et plus). Elle fixe son salaire minimum (« minimum conventionnel ») et, pour le préavis, le groupe 1 à 5 ou le groupe 6 et plus.</td></tr>
+    <tr><td><b>Minimum conventionnel</b></td><td>Le salaire minimum mensuel prévu par la convention collective pour la catégorie. Il sert de base à la gratification. Il doit être saisi d'après la grille officielle (voir le tableau des catégories).</td></tr>
+    <tr><td><b>Mode de paie</b></td><td>« À l'heure ou à la journée » ou « au mois ». Il change la durée du préavis.</td></tr>
+    <tr><td><b>Ancienneté</b></td><td>Temps de service continu dans l'entreprise, compté depuis la date d'embauche jusqu'à la date de fin.</td></tr>
+    <tr><td><b>Prorata</b></td><td>Calcul au temps réellement travaillé dans l'année (embauche, démission ou licenciement en cours d'année). Exemple : 6 mois sur 12 donnent la moitié.</td></tr>
+    <tr><td><b>Gratification de fin d'année</b></td><td>Le « 13e mois » minimum : 3/4 du minimum conventionnel de la catégorie, versé en fin d'année, au prorata (convention collective 1977, art. 53).</td></tr>
+    <tr><td><b>Préavis</b></td><td>Délai à respecter avant qu'une rupture de contrat prenne effet. Sa durée dépend du mode de paie, de la catégorie et de l'ancienneté (décret n° 2026-198).</td></tr>
+    <tr><td><b>Incapacité de plus de 40 %</b></td><td>Lorsque le salarié a une incapacité permanente de plus de 40 %, le délai après 6 mois d'ancienneté est doublé.</td></tr>
+    <tr><td><b>Licenciement abusif</b></td><td>Licenciement sans motif légitime, ou pour faux motif. Il donne droit à des dommages-intérêts (Code du travail, art. 18.15). <b>L'outil calcule le montant ; c'est le juge qui décide si le licenciement est abusif.</b></td></tr>
+    <tr><td><b>Dommages-intérêts</b></td><td>1 mois de salaire brut par année d'ancienneté, avec un minimum de 3 mois et un maximum de 20 mois de salaire brut.</td></tr>
+    <tr><td><b>Salaire brut moyen</b></td><td>Moyenne mensuelle du salaire brut sur les 12 derniers mois de service (ou moins si l'ancienneté est plus courte).</td></tr>
+  </table>
+  <p class="petit">Les taux et seuils sont enregistrés dans la base (tables <code>rh_categories</code>, <code>rh_reglages</code>, <code>rh_bareme_preavis</code>) et peuvent être modifiés sans changer le programme. Sources et points à valider : <code>docs/PAIE_RH_regles_a_valider.md</code>.</p>
+</section>`;
+
+const FORM_CALCULS = `
+<section class="bloc">
+  <h2>1. Gratification de fin d'année</h2>
+  <p class="petit">Montant minimum = 3/4 × minimum conventionnel de la catégorie × jours de service dans l'année ÷ 365. Si une prime déjà versée est au moins égale à ce minimum, rien de plus n'est dû.</p>
+  <div class="ligne">
+    <label>Catégorie <select id="g_cat"></select></label>
+    <label>Année <input id="g_annee" type="number" value="${new Date().getFullYear()}"></label>
+    <label>Date d'entrée <input id="g_entree" type="date" value="${new Date().getFullYear()}-01-01"></label>
+    <label>Date de sortie (si partie) <input id="g_sortie" type="date"></label>
+    <label>Déjà versé dans l'année <input id="g_deja" type="number" value="0"></label>
+    <button id="g_go">Calculer</button>
+  </div>
+  <div id="g_res"></div>
+</section>
+
+<section class="bloc">
+  <h2>2. Dommages-intérêts en cas de licenciement abusif</h2>
+  <p class="petit">1 mois de salaire brut par année d'ancienneté, minimum 3 mois, maximum 20 mois (art. 18.15, b). Ce calcul suppose que le licenciement a été jugé abusif.</p>
+  <div class="ligne">
+    <label>Salaire brut mensuel moyen (F) <input id="a_salaire" type="number"></label>
+    <label>Ancienneté en années complètes <input id="a_annees" type="number" min="0" value="0"></label>
+    <button id="a_go">Calculer</button>
+  </div>
+  <div id="a_res"></div>
+</section>
+
+<section class="bloc">
+  <h2>3. Durée du préavis</h2>
+  <p class="petit">Décret n° 2026-198. Le barème est dans la base ; seule la durée est calculée ici.</p>
+  <div class="ligne">
+    <label>Mode de paie <select id="p_mode"></select></label>
+    <label>Catégorie <select id="p_cat"></select></label>
+    <label>Ancienneté en mois <input id="p_mois" type="number" min="0" value="0"></label>
+    <label><input id="p_incap" type="checkbox"> Incapacité de plus de 40 %</label>
+    <button id="p_go">Calculer</button>
+  </div>
+  <div id="p_res"></div>
+</section>`;
+
+async function demarrer() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) { formulaireConnexion($("principal"), demarrer); return; }
+  $("qui").textContent = data.session.user.email;
+  $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+  $("principal").innerHTML = AIDE + `<section class="bloc"><h2>Catégories conventionnelles</h2><div id="cats"><p class="petit">Chargement…</p></div></section>` + FORM_CALCULS;
+  remplirChoix();
+  chargerCategories();
+  $("g_go").onclick = calculerGratification;
+  $("a_go").onclick = calculerAbus;
+  $("p_go").onclick = calculerPreavis;
+}
+
+function remplirChoix() {
+  $("p_mode").innerHTML = Object.entries(MODE_PAIE).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
+  $("p_cat").innerHTML = Object.entries(CATEGORIE_PREAVIS).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
+}
+
+async function chargerCategories() {
+  const { data, error } = await sb.from("rh_categories").select("categorie,libelle,minimum_conventionnel,source,explication").order("categorie");
+  if (error) { $("cats").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
+  $("g_cat").innerHTML = data.map((c) => `<option value="${esc(c.categorie)}">${esc(c.libelle)}</option>`).join("");
+  $("cats").innerHTML = `
+    <p class="petit">Le minimum conventionnel est saisi d'après la grille officielle. Une catégorie sans minimum bloque le calcul de la gratification tant qu'il n'est pas renseigné.</p>
+    <table><tr><th>Catégorie</th><th>Minimum conventionnel (F/mois)</th><th>Source</th><th>Explication</th></tr>
+    ${data.map((c) => `<tr><td>${esc(c.libelle)}</td><td>${c.minimum_conventionnel === null ? '<span class="ko">Non renseigné</span>' : F(c.minimum_conventionnel)}</td><td>${esc(c.source || "")}</td><td>${esc(c.explication || "")}</td></tr>`).join("")}
+    </table>`;
+}
+
+// Affiche un résultat ou l'erreur renvoyée par la base.
+function afficher(id, erreur, html) {
+  $(id).innerHTML = erreur ? `<div class="msg ko">${esc(erreur.message)}</div>` : html;
+}
+
+async function calculerGratification() {
+  const { data, error } = await sb.rpc("gratification_minimum", {
+    p_categorie: $("g_cat").value,
+    p_annee: num($("g_annee").value),
+    p_date_entree: $("g_entree").value,
+    p_date_sortie: txt($("g_sortie").value),
+  });
+  if (error) return afficher("g_res", error);
+  const deja = num($("g_deja").value) || 0;
+  const reste = Math.max(0, data - deja);
+  afficher("g_res", null, `<div class="msg ok"><b>Minimum dû : ${F(data)} F</b><br>Déjà versé : ${F(deja)} F<br><b>Complément à verser : ${F(reste)} F</b></div>`);
+}
+
+async function calculerAbus() {
+  const { data, error } = await sb.rpc("dommages_licenciement_abusif", {
+    p_salaire_brut_moyen: num($("a_salaire").value),
+    p_anciennete_annees: num($("a_annees").value) || 0,
+  });
+  if (error) return afficher("a_res", error);
+  const r = data[0];
+  afficher("a_res", null, `<div class="msg ok"><b>Dommages-intérêts : ${F(r.montant)} F</b><br>Mois retenus : ${Number(r.mois_retenus)} (minimum 3, maximum 20)</div>`);
+}
+
+async function calculerPreavis() {
+  const { data, error } = await sb.rpc("duree_preavis", {
+    p_mode: $("p_mode").value,
+    p_categorie: $("p_cat").value,
+    p_anciennete_mois: num($("p_mois").value) || 0,
+    p_incapacite: $("p_incap").checked,
+  });
+  if (error) return afficher("p_res", error);
+  const r = data[0];
+  afficher("p_res", null, `<div class="msg ok"><b>Préavis : ${Number(r.duree)} ${r.unite === "jours" ? "jour(s)" : "mois"}</b></div>`);
+}
+
+demarrer();
+</script>
+</body>
+</html>
