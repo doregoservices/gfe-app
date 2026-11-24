@@ -9,7 +9,7 @@
 <header class="bandeau">
   <img src="charte/logo_banniere.png" alt="GFE" onerror="this.style.display='none'">
   <div class="titre" id="titre">COMPTABILITÉ</div>
-  <div class="droite"><span id="qui"></span><select id="choixEnt" style="display:none"></select><a class="bouton" href="gestion.html">← GESTION</a><button id="deco">Déconnexion</button></div>
+  <div class="droite"><span id="qui"></span><select id="choixEnt" style="display:none"></select><a class="bouton" href="comptes.html">Comptes</a><a class="bouton" href="gestion.html">← GESTION</a><button id="deco">Déconnexion</button></div>
 </header>
 <main id="principal"><p class="petit">Chargement…</p></main>
 <script type="module">
@@ -17,7 +17,7 @@ import * as C from "./assets/stock-core.js";
 const { sb, $, esc, F, rpc, lireTout, injecterStyle, formulaireConnexion } = C;
 injecterStyle();
 
-const ETAT = { ent: null, role: null, onglet: "ops", journal: "VT", ops: [], types: [], plan: [], tiers: [], mods: [] };
+const ETAT = { ent: null, role: null, corr: null, onglet: "ops", journal: "VT", ops: [], types: [], plan: [], tiers: [], mods: [] };
 const ROLES_COMPTA = ["comptable", "chef_comptable", "chef_cabinet"];
 const JOURNAUX = { CA: "Caisse", BQ: "Banque", AC: "Achats", VT: "Ventes", OD: "Opérations diverses" };
 
@@ -70,16 +70,74 @@ function dessiner() {
   document.querySelectorAll("[data-mod]").forEach((b) => b.onclick = () => basculerModule(b.dataset.mod, b.dataset.actif === "true"));
   if (ETAT.onglet === "jrn") dessinerJournal();
   if (ETAT.onglet === "bal") dessinerBalance();
+  if (ETAT.onglet === "ops") {
+    document.querySelectorAll("button[data-corr]").forEach((b) => b.onclick = () => { ETAT.corr = b.dataset.corr; dessiner(); window.scrollTo(0, 0); });
+    const fc = $("formCorr"); if (fc) fc.onsubmit = enregistrerCorrection;
+    const an = $("annulerCorr"); if (an) an.onclick = () => { ETAT.corr = null; dessiner(); };
+    chargerHistorique();
+  }
 }
 
 function vueOps() {
   const types = Object.fromEntries(ETAT.types.map((t) => [t.code, t.libelle]));
   const nomTiers = Object.fromEntries(ETAT.tiers.map((t) => [t.id, t.nom]));
-  const lignes = ETAT.ops.slice().reverse().map((o) => `<tr><td>${esc(o.date_operation)}</td><td>${esc(types[o.type_code] || o.type_code)}</td><td>${esc(o.mode || "")}</td><td>${esc(o.libelle)}</td><td>${esc(nomTiers[o.tiers_id] || "")}</td><td style="text-align:right">${F(o.montant)}</td><td>${esc(o.piece || "")}</td></tr>`).join("");
+  const lignes = ETAT.ops.slice().reverse().map((o) => `<tr><td>${esc(o.date_operation)}</td><td>${esc(types[o.type_code] || o.type_code)}</td><td>${esc(o.mode || "")}</td><td>${esc(o.libelle)}</td><td>${esc(nomTiers[o.tiers_id] || "")}</td><td style="text-align:right">${F(o.montant)}</td><td>${esc(o.piece || "")}</td><td><button data-corr="${esc(o.id)}">Corriger</button></td></tr>`).join("");
   return `<h2>Opérations saisies (${ETAT.ops.length})</h2>
-    <p class="petit">Chaque opération est répartie automatiquement dans les journaux (onglets Journaux et Balance).</p>
-    <table><thead><tr><th>Date</th><th>Type</th><th>Mode</th><th>Libellé</th><th>Tiers</th><th>Montant</th><th>Pièce</th></tr></thead>
-    <tbody>${lignes || '<tr><td colspan="7">Aucune opération.</td></tr>'}</tbody></table>`;
+    <p class="petit">Chaque opération est répartie automatiquement dans les journaux (onglets Journaux et Balance). Une correction se fait directement ici ; chaque modification est enregistrée automatiquement dans l'historique.</p>
+    ${ETAT.corr ? formulaireCorrection() : ""}
+    <table><thead><tr><th>Date</th><th>Type</th><th>Mode</th><th>Libellé</th><th>Tiers</th><th>Montant</th><th>Pièce</th><th></th></tr></thead>
+    <tbody>${lignes || '<tr><td colspan="8">Aucune opération.</td></tr>'}</tbody></table>
+    <h3>Historique des modifications</h3><div id="historique"><p class="petit">Chargement…</p></div>`;
+}
+
+function formulaireCorrection() {
+  const o = ETAT.ops.find((x) => x.id === ETAT.corr); if (!o) return "";
+  const t = ETAT.types.find((x) => x.code === o.type_code) || {};
+  const opts = ETAT.types.map((x) => `<option value="${esc(x.code)}" ${x.code === o.type_code ? "selected" : ""}>${esc(x.libelle)}</option>`).join("");
+  const plan = ETAT.plan.map((p) => `<option value="${esc(p.numero_interne)}" ${p.numero_interne === o.categorie ? "selected" : ""}>${esc(p.numero_affiche)} – ${esc(p.libelle)}</option>`).join("");
+  const tiers = ETAT.tiers.map((x) => `<option value="${esc(x.id)}" ${x.id === o.tiers_id ? "selected" : ""}>${esc(x.nom)} (${esc(x.type)})</option>`).join("");
+  return `<div class="bloc"><h3>Correction de l'opération</h3>
+    <form id="formCorr" class="grille">
+      <label>Date<input type="date" id="cdte" value="${esc(o.date_operation)}" required></label>
+      <label>Type<select id="ctyp">${opts}</select></label>
+      <label>Mode<select id="cmode"><option value="">—</option><option ${o.mode === "Espèces" ? "selected" : ""}>Espèces</option><option ${o.mode === "Banque" ? "selected" : ""}>Banque</option></select></label>
+      <label>Catégorie<select id="ccat"><option value="">—</option>${plan}</select></label>
+      <label>Tiers<select id="ctiers"><option value="">—</option>${tiers}</select></label>
+      <label>Montant (F)<input type="number" id="cmnt" min="1" value="${esc(o.montant)}" required></label>
+      <label>N° de pièce<input id="cpce" value="${esc(o.piece || "")}"></label>
+      <label style="grid-column:1/-1">Libellé<input id="clib" value="${esc(o.libelle)}" required></label>
+      <div style="grid-column:1/-1"><button type="submit">Enregistrer la correction</button> <button type="button" id="annulerCorr">Annuler</button></div>
+      <div id="msgCorr" style="grid-column:1/-1"></div>
+    </form></div>`;
+}
+
+async function enregistrerCorrection(ev) {
+  ev.preventDefault();
+  const o = ETAT.ops.find((x) => x.id === ETAT.corr);
+  const ty = ETAT.types.find((x) => x.code === $("ctyp").value) || {};
+  const maj = {
+    date_operation: $("cdte").value,
+    type_code: $("ctyp").value,
+    mode: ty.mode_requis === 0 ? null : ($("cmode").value || null),
+    categorie: ty.categorie_requise === 0 ? null : ($("ccat").value || null),
+    tiers_id: ty.tiers === 0 ? null : ($("ctiers").value || null),
+    montant: Number($("cmnt").value),
+    piece: $("cpce").value.trim() || null,
+    libelle: $("clib").value.trim(),
+  };
+  const { error } = await sb.from("operations").update(maj).eq("id", o.id);
+  if (error) { $("msgCorr").innerHTML = `<div class="msg ko">Correction refusée : ${esc(error.message)}</div>`; return; }
+  ETAT.corr = null;
+  await charger(); ETAT.onglet = "ops"; dessiner();
+  $("principal").insertAdjacentHTML("afterbegin", '<div class="msg ok">Correction enregistrée (historique mis à jour).</div>');
+}
+
+async function chargerHistorique() {
+  const h = $("historique"); if (!h) return;
+  const lignes = await lireTout("journal_audit", { filtre: (q) => q.eq("entreprise_id", ETAT.ent.id), ordre: "date_action" });
+  const recentes = lignes.slice(-30).reverse();
+  h.innerHTML = `<table><thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Libellé</th><th>Montant avant</th><th>Montant après</th></tr></thead><tbody>${
+    recentes.map((l) => `<tr><td>${esc(String(l.date_action).replace("T", " ").slice(0, 16))}</td><td>${esc(l.utilisateur_email || "")}</td><td>${esc(l.action)}</td><td>${esc((l.apres || l.avant || {}).libelle || "")}</td><td style="text-align:right">${l.avant ? F(l.avant.montant) : ""}</td><td style="text-align:right">${l.apres ? F(l.apres.montant) : ""}</td></tr>`).join("") || '<tr><td colspan="6">Aucune modification.</td></tr>'}</tbody></table>`;
 }
 
 function vueJournaux() {

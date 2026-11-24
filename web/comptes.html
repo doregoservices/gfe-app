@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFE — Comptes du cabinet</title>
+</head>
+<body>
+<header class="bandeau">
+  <img src="charte/logo_banniere.png" alt="GFE" onerror="this.style.display='none'">
+  <div class="titre">COMPTES DU CABINET</div>
+  <div class="droite"><span id="qui"></span><a class="bouton" href="comptabilite.html">← Comptabilité</a><button id="deco">Déconnexion</button></div>
+</header>
+<main id="principal"><p class="petit">Chargement…</p></main>
+<script type="module">
+import * as C from "./assets/stock-core.js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const { sb, $, esc, rpc, injecterStyle, formulaireConnexion, SUPABASE_URL, SUPABASE_ANON_KEY } = C;
+injecterStyle();
+// Client sans session : crée un compte sans déconnecter le chef
+const sbNouveau = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false }, db: { schema: "gfe" } });
+
+const LIBELLE = { chef_cabinet: "Chef du cabinet", chef_comptable: "Chef comptable", comptable: "Comptable", entreprise: "Client", bloque: "Bloqué" };
+const ETAT = { role: null, moi: null, comptes: [] };
+
+async function demarrer() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) { formulaireConnexion($("principal"), demarrer); return; }
+  $("qui").textContent = data.session.user.email;
+  $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+  ETAT.moi = data.session.user.id;
+  const profil = await sb.from("profils").select("role,bloque").eq("id", ETAT.moi);
+  ETAT.role = profil.data && profil.data[0] ? profil.data[0].role : null;
+  if (!["chef_comptable", "chef_cabinet"].includes(ETAT.role)) {
+    $("principal").innerHTML = '<div class="msg ko">Cette page est réservée aux chefs du cabinet.</div>'; return;
+  }
+  await charger();
+}
+
+async function charger() {
+  const { data, error } = await sb.rpc("lister_comptes_cabinet");
+  if (error) { $("principal").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
+  ETAT.comptes = data || [];
+  dessiner();
+}
+
+function dessiner() {
+  const cabinet = ETAT.role === "chef_cabinet";
+  const roles = cabinet ? [["chef_comptable", "Chef comptable"], ["comptable", "Comptable"]] : [["comptable", "Comptable"]];
+  const lignes = ETAT.comptes.map((c) => {
+    const estMoi = c.id === ETAT.moi;
+    const protege = c.role === "chef_cabinet" || (c.role === "chef_comptable" && !cabinet);
+    const etat = c.bloque ? '<span class="ko">Bloqué</span>' : '<span class="ok">Actif</span>';
+    const actions = protege || estMoi ? '<span class="petit">—</span>' : `
+      <button data-bloque="${esc(c.id)}" data-val="${c.bloque ? "false" : "true"}">${c.bloque ? "Débloquer" : "Bloquer"}</button>
+      <button data-retire="${esc(c.id)}">Retirer le rôle</button>`;
+    return `<tr><td>${esc(c.email)}${estMoi ? " (vous)" : ""}</td><td>${esc(LIBELLE[c.role] || c.role)}</td><td>${etat}</td><td>${actions}</td></tr>`;
+  }).join("");
+  $("principal").innerHTML = `
+    <section class="bloc">
+      <h2>Ajouter un compte</h2>
+      <p class="petit">Le compte est créé avec le mot de passe choisi. Si l'adresse existe déjà, son rôle est seulement mis à jour.</p>
+      <form id="formCompte" class="grille">
+        <label>E-mail<input type="email" id="ce" required></label>
+        <label>Mot de passe (6 caractères minimum)<input type="text" id="cp" minlength="6" required></label>
+        <label>Rôle<select id="cr">${roles.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
+        <div><button type="submit" id="bcompte">Créer ou attribuer le rôle</button></div>
+        <div id="msgCompte" style="grid-column:1/-1"></div>
+      </form>
+    </section>
+    <section class="bloc">
+      <h2>Comptes du cabinet</h2>
+      <table><thead><tr><th>E-mail</th><th>Rôle</th><th>État</th><th>Actions</th></tr></thead>
+      <tbody>${lignes || '<tr><td colspan="4">Aucun compte.</td></tr>'}</tbody></table>
+      <p class="petit">Le chef du cabinet ne peut être ni bloqué ni retiré. Un chef comptable ne gère que les comptables.</p>
+    </section>`;
+  $("formCompte").onsubmit = creerCompte;
+  document.querySelectorAll("button[data-bloque]").forEach((b) => b.onclick = () => basculer(b.dataset.bloque, b.dataset.val === "true"));
+  document.querySelectorAll("button[data-retire]").forEach((b) => b.onclick = () => retirer(b.dataset.retire));
+}
+
+async function creerCompte(ev) {
+  ev.preventDefault();
+  const email = $("ce").value.trim(), mdp = $("cp").value, role = $("cr").value;
+  $("bcompte").disabled = true;
+  // 1. Créer le compte (s'il n'existe pas encore)
+  const { error: errCreation } = await sbNouveau.auth.signUp({ email, password: mdp });
+  if (errCreation && !/already|registered|existe/i.test(errCreation.message)) {
+    $("bcompte").disabled = false;
+    $("msgCompte").innerHTML = `<div class="msg ko">Compte non créé : ${esc(errCreation.message)}</div>`; return;
+  }
+  // 2. Attribuer le rôle (contrôlé par la base)
+  const { data, error } = await sb.rpc("definir_role", { p_email: email, p_role: role });
+  $("bcompte").disabled = false;
+  if (error) { $("msgCompte").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
+  await charger();
+  $("principal").insertAdjacentHTML("afterbegin", `<div class="msg ok">${esc(data)}</div>`);
+}
+
+async function basculer(id, bloquer) {
+  const { error } = await sb.rpc("bloquer_compte", { p_profil: id, p_bloque: bloquer });
+  if (error) { alert(error.message); return; }
+  await charger();
+}
+
+async function retirer(id) {
+  if (!confirm("Retirer le rôle de ce compte ? Il ne pourra plus accéder aux interfaces du cabinet.")) return;
+  const { error } = await sb.rpc("retirer_role", { p_profil: id });
+  if (error) { alert(error.message); return; }
+  await charger();
+}
+
+demarrer();
+</script>
+</body>
+</html>
