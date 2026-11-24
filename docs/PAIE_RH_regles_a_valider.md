@@ -74,6 +74,10 @@ Cellules B53 à B62. Le modèle applique la tranche 0 % jusqu'à 75 000 F.
 | Heures et durée | 40 h par semaine hors agriculture | Art. 21.2 | Confirmé |
 | Deux jours de liberté pendant le préavis | 2 jours payés par semaine de préavis | Art. 18.6 | Confirmé |
 
+## Validation
+
+Les taux et barèmes de ce document ont été validés par le responsable du dossier le 18/09/2026.
+
 ## 4. Plan de vérification (à suivre étape par étape)
 
 1. ~~Préavis~~ : **réglé** par le décret 2026-198 (appliqué).
