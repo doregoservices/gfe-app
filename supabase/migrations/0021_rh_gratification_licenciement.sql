@@ -1,29 +1,41 @@
 -- 0021 : gratification de fin d'année (CCI 1977 art. 53) et dommages-intérêts pour licenciement abusif (Code du travail art. 18.15)
 -- Tous les taux, seuils et minima sont dans des tables modifiables (aucune valeur figée dans le code).
 
--- 1. Catégories conventionnelles et minimum par catégorie.
---    minimum_conventionnel = salaire minimum hiérarchisé de la catégorie (grille de la CCI, à saisir depuis la grille officielle).
---    Seule la 1re catégorie est renseignée : elle correspond au SMIG (75 000 F, décret 2022-986). Les autres restent vides
---    tant que la grille officielle n'est pas saisie : le calcul refuse alors de travailler (pas de valeur inventée).
+-- 1. Catégories conventionnelles, par branche d'activité.
+--    La grille dépend de la convention de la branche (chaque branche a sa grille). minimum_conventionnel = salaire minimum
+--    mensuel de la catégorie. Chaque ligne indique sa source ; une valeur vide bloque le calcul (aucune valeur inventée).
+--    Branche « commerce » : grille de l'arrêté n° 0050/MEPS/CAB du 19/05/2023, relevée par AfricaPaieRH (à confirmer sur le texte).
 create table if not exists gfe.rh_categories (
-  categorie text primary key,
+  branche text not null,
+  categorie text not null,
+  ordre integer not null,
   libelle text not null,
+  famille text,
   minimum_conventionnel numeric(12,0),
   source text,
-  explication text
+  explication text,
+  primary key (branche, categorie)
 );
 alter table gfe.rh_categories enable row level security;
 drop policy if exists "categories lisibles" on gfe.rh_categories;
 create policy "categories lisibles" on gfe.rh_categories for select to authenticated using (true);
 
-insert into gfe.rh_categories (categorie, libelle, minimum_conventionnel, source, explication) values
-  ('1', '1re catégorie (manoeuvre ordinaire)', 75000, 'SMIG, décret 2022-986 ; à confirmer par la grille CCI', 'Salaire minimum de la 1re catégorie. Sert de base à la gratification.'),
-  ('2', '2e catégorie', null, 'À saisir depuis la grille officielle de la CCI', 'Minimum non renseigné : saisir la valeur officielle.'),
-  ('3', '3e catégorie', null, 'À saisir depuis la grille officielle de la CCI', 'Minimum non renseigné : saisir la valeur officielle.'),
-  ('4', '4e catégorie', null, 'À saisir depuis la grille officielle de la CCI', 'Minimum non renseigné : saisir la valeur officielle.'),
-  ('5', '5e catégorie', null, 'À saisir depuis la grille officielle de la CCI', 'Minimum non renseigné : saisir la valeur officielle.'),
-  ('6', '6e catégorie et plus (cadres)', null, 'À saisir depuis la grille officielle de la CCI', 'Minimum non renseigné : saisir la valeur officielle.')
-on conflict (categorie) do nothing;
+insert into gfe.rh_categories (branche, categorie, ordre, libelle, famille, minimum_conventionnel, source, explication) values
+  ('commerce', '1',   1,  'Manœuvre', 'Ouvrier', 75000, 'Arrêté 0050/MEPS/CAB du 19/05/2023 (grille commerce, relevé AfricaPaieRH : à confirmer)', 'Égal au SMIG.'),
+  ('commerce', '2',   2,  'Employé 2e échelon', 'Employé', 85168, 'idem', ''),
+  ('commerce', '3',   3,  'Employé qualifié', 'Employé', 85765, 'idem', ''),
+  ('commerce', '4',   4,  'Employé très qualifié', 'Employé', 91135, 'idem', ''),
+  ('commerce', '5',   5,  'Chef de rayon junior', 'Employé', 108716, 'idem', ''),
+  ('commerce', '6',   6,  'Premier vendeur / comptable adjoint', 'Employé', 123213, 'idem', ''),
+  ('commerce', '7A',  7,  'Secrétaire de direction', 'Employé', 124504, 'idem', ''),
+  ('commerce', '7B',  8,  'Comptable principal', 'Employé', 133724, 'idem', ''),
+  ('commerce', 'MNP', 9,  'Maîtrise débutant', 'Maîtrise', 116786, 'idem', ''),
+  ('commerce', 'M1',  10, 'Agent de maîtrise M1', 'Maîtrise', 132473, 'idem', ''),
+  ('commerce', 'M2',  11, 'Agent de maîtrise M2', 'Maîtrise', 141760, 'idem', ''),
+  ('commerce', 'M3',  12, 'Technicien supérieur', 'Maîtrise', 169309, 'idem', ''),
+  ('commerce', '1A',  13, 'Cadre débutant', 'Cadre', 170606, 'idem', ''),
+  ('commerce', '1B',  14, 'Cadre confirmé', 'Cadre', 196398, 'idem', '')
+on conflict (branche, categorie) do nothing;
 
 -- 2. Paramètres (ajout aux réglages existants).
 insert into gfe.rh_reglages (cle, valeur, libelle, source) values
@@ -37,6 +49,7 @@ on conflict (cle) do nothing;
 --    Montant = 3/4 x minimum de la catégorie x (jours de service dans l'année / 365).
 --    Le prorata couvre l'embauche, la démission et le licenciement en cours d'année (art. 53, al. 2).
 create or replace function gfe.gratification_minimum(
+  p_branche text,
   p_categorie text,
   p_annee integer,
   p_date_entree date,
@@ -46,8 +59,8 @@ declare
   c gfe.rh_categories%rowtype;
   fraction numeric; debut date; fin date; jours integer;
 begin
-  select * into c from gfe.rh_categories where categorie = p_categorie;
-  if not found then raise exception 'Catégorie inconnue : %', p_categorie; end if;
+  select * into c from gfe.rh_categories where branche = p_branche and categorie = p_categorie;
+  if not found then raise exception 'Catégorie % inconnue pour la branche %', p_categorie, p_branche; end if;
   if c.minimum_conventionnel is null then
     raise exception 'Minimum conventionnel non renseigné pour la catégorie % : saisir la grille officielle', p_categorie;
   end if;
@@ -76,5 +89,5 @@ begin
 end $$;
 
 grant select on gfe.rh_categories to authenticated;
-grant execute on function gfe.gratification_minimum(text, integer, date, date) to authenticated;
+grant execute on function gfe.gratification_minimum(text, text, integer, date, date) to authenticated;
 grant execute on function gfe.dommages_licenciement_abusif(numeric, integer) to authenticated;

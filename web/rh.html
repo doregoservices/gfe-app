@@ -44,6 +44,7 @@ const FORM_CALCULS = `
   <h2>1. Gratification de fin d'année</h2>
   <p class="petit">Montant minimum = 3/4 × minimum conventionnel de la catégorie × jours de service dans l'année ÷ 365. Si une prime déjà versée est au moins égale à ce minimum, rien de plus n'est dû.</p>
   <div class="ligne">
+    <label>Branche (convention) <select id="g_branche"></select></label>
     <label>Catégorie <select id="g_cat"></select></label>
     <label>Année <input id="g_annee" type="number" value="${new Date().getFullYear()}"></label>
     <label>Date d'entrée <input id="g_entree" type="date" value="${new Date().getFullYear()}-01-01"></label>
@@ -91,19 +92,30 @@ async function demarrer() {
   $("p_go").onclick = calculerPreavis;
 }
 
+const ETAT = { categories: [] };
+function remplirCategories() {
+  const b = $("g_branche").value;
+  $("g_cat").innerHTML = ETAT.categories.filter((c) => c.branche === b)
+    .map((c) => `<option value="${esc(c.categorie)}">${esc(c.categorie)} : ${esc(c.libelle)}</option>`).join("");
+}
+
 function remplirChoix() {
   $("p_mode").innerHTML = Object.entries(MODE_PAIE).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
   $("p_cat").innerHTML = Object.entries(CATEGORIE_PREAVIS).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
 }
 
 async function chargerCategories() {
-  const { data, error } = await sb.from("rh_categories").select("categorie,libelle,minimum_conventionnel,source,explication").order("categorie");
+  const { data, error } = await sb.from("rh_categories").select("branche,categorie,ordre,libelle,famille,minimum_conventionnel,source,explication").order("branche").order("ordre");
   if (error) { $("cats").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
-  $("g_cat").innerHTML = data.map((c) => `<option value="${esc(c.categorie)}">${esc(c.libelle)}</option>`).join("");
+  const branches = [...new Set(data.map((c) => c.branche))];
+  $("g_branche").innerHTML = branches.map((b) => `<option value="${esc(b)}">${esc(b)}</option>`).join("");
+  $("g_branche").onchange = remplirCategories;
+  ETAT.categories = data;
+  remplirCategories();
   $("cats").innerHTML = `
-    <p class="petit">Le minimum conventionnel est saisi d'après la grille officielle. Une catégorie sans minimum bloque le calcul de la gratification tant qu'il n'est pas renseigné.</p>
-    <table><tr><th>Catégorie</th><th>Minimum conventionnel (F/mois)</th><th>Source</th><th>Explication</th></tr>
-    ${data.map((c) => `<tr><td>${esc(c.libelle)}</td><td>${c.minimum_conventionnel === null ? '<span class="ko">Non renseigné</span>' : F(c.minimum_conventionnel)}</td><td>${esc(c.source || "")}</td><td>${esc(c.explication || "")}</td></tr>`).join("")}
+    <p class="petit">Chaque branche a sa propre grille. Le minimum est saisi d'après le texte de la convention de la branche. Une catégorie sans minimum bloque le calcul de la gratification tant qu'il n'est pas renseigné.</p>
+    <table><tr><th>Branche</th><th>Catégorie</th><th>Intitulé</th><th>Famille</th><th>Minimum (F/mois)</th><th>Source</th></tr>
+    ${data.map((c) => `<tr><td>${esc(c.branche)}</td><td>${esc(c.categorie)}</td><td>${esc(c.libelle)}</td><td>${esc(c.famille || "")}</td><td>${c.minimum_conventionnel === null ? '<span class="ko">Non renseigné</span>' : F(c.minimum_conventionnel)}</td><td>${esc(c.source || "")}</td></tr>`).join("")}
     </table>`;
 }
 
@@ -114,6 +126,7 @@ function afficher(id, erreur, html) {
 
 async function calculerGratification() {
   const { data, error } = await sb.rpc("gratification_minimum", {
+    p_branche: $("g_branche").value,
     p_categorie: $("g_cat").value,
     p_annee: num($("g_annee").value),
     p_date_entree: $("g_entree").value,
