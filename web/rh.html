@@ -16,6 +16,8 @@
 import { sb, $, esc, F, num, txt, formulaireConnexion, injecterStyle } from "./assets/stock-core.js";
 injecterStyle();
 
+const BRANCHE = { commerce: "Commerce, distribution, négoce et professions libérales", btp: "Bâtiment, travaux publics et activités connexes", industrie: "Industrie mécanique, alimentaire, corps gras, chimique et transport", transit: "Auxiliaires du transport et transit", securite: "Sécurité privée" };
+const nomBranche = (b) => BRANCHE[b] || b;
 const CATEGORIE_PREAVIS = { "cat1_5": "Catégorie 1 à 5 (ouvriers, employés, agents de maîtrise, techniciens)", "cat6": "Catégorie 6 et plus (cadres)" };
 const MODE_PAIE = { "heure": "Payé à l'heure ou à la journée", "mois": "Payé au mois" };
 
@@ -108,14 +110,14 @@ async function chargerCategories() {
   const { data, error } = await sb.from("rh_categories").select("branche,categorie,ordre,libelle,famille,minimum_conventionnel,source,explication").order("branche").order("ordre");
   if (error) { $("cats").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
   const branches = [...new Set(data.map((c) => c.branche))];
-  $("g_branche").innerHTML = branches.map((b) => `<option value="${esc(b)}">${esc(b)}</option>`).join("");
+  $("g_branche").innerHTML = branches.map((b) => `<option value="${esc(b)}">${esc(nomBranche(b))}</option>`).join("");
   $("g_branche").onchange = remplirCategories;
   ETAT.categories = data;
   remplirCategories();
   $("cats").innerHTML = `
     <p class="petit">Chaque branche a sa propre grille. Le minimum est saisi d'après le texte de la convention de la branche. Une catégorie sans minimum bloque le calcul de la gratification tant qu'il n'est pas renseigné.</p>
     <table><tr><th>Branche</th><th>Catégorie</th><th>Intitulé</th><th>Famille</th><th>Minimum (F/mois)</th><th>Source</th></tr>
-    ${data.map((c) => `<tr><td>${esc(c.branche)}</td><td>${esc(c.categorie)}</td><td>${esc(c.libelle)}</td><td>${esc(c.famille || "")}</td><td>${c.minimum_conventionnel === null ? '<span class="ko">Non renseigné</span>' : F(c.minimum_conventionnel)}</td><td>${esc(c.source || "")}</td></tr>`).join("")}
+    ${data.map((c) => `<tr><td>${esc(nomBranche(c.branche))}</td><td>${esc(c.categorie)}</td><td>${esc(c.libelle)}</td><td>${esc(c.famille || "")}</td><td>${c.minimum_conventionnel === null ? '<span class="ko">Non renseigné</span>' : F(c.minimum_conventionnel)}</td><td>${esc(c.source || "")}</td></tr>`).join("")}
     </table>`;
 }
 
