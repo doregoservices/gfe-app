@@ -66,7 +66,7 @@ Cellules B53 à B62. Le modèle applique la tranche 0 % jusqu'à 75 000 F.
 | Majoration congé | +1 jour après 5 ans, +2 jours après 10 ans | Art. 25.2 | Confirmé (sources secondaires) |
 | Congé non pris en fin de contrat | Indemnité compensatrice | Art. 25.8 | Confirmé |
 | Préavis | **Appliqué** : décret n° 2026-198 du 15 avril 2026 (texte du décret, reproduit sur loidici.biz). Il remplace le décret 96-200. La passation (8 jours jusqu'à 6 mois, doublé au-delà) était incomplète ; le décret prévoit aussi 15 jours, 1 à 4 mois selon le mode de paie et la catégorie. | Décret 2026-198 (art. 1 à 4) | Appliqué dans `gfe.rh_bareme_preavis` (migration 0020), dix cas testés |
-| Indemnité de licenciement | 30 % du salaire moyen par année (5 premières années), 35 % (6e à 10e), 40 % au-delà | **Décret 2017-210, art. 4** (texte vérifié) | Taux et seuils du texte ; calcul non encore codé |
+| Indemnité de licenciement | 30 % du salaire moyen par année (5 premières années), 35 % (6e à 10e), 40 % au-delà | **Décret 2017-210, art. 4** (texte vérifié) | Appliqué (migration 0024, `gfe.indemnite_licenciement_salarie`) |
 | Base de l'indemnité | Salaire moyen des 12 derniers mois (salaire global) | Art. 18.16 / décret | Salaire global (primes incluses) |
 | Ancienneté minimale | Un an de service continu | Passation / décret | Un an de service continu |
 | Licenciement abusif | Dommages-intérêts : 1 mois de salaire brut par année d'ancienneté, minimum 3 mois, maximum 20 mois. Le juge constate l'abus. | **Art. 18.15, b)** de la loi 2015-532 (texte vérifié sur plusieurs reproductions de la loi) | **Appliqué** (migration 0021, fonction `gfe.dommages_licenciement_abusif`). Ancienneté en années complètes (choix retenu). |

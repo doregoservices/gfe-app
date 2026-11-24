@@ -100,6 +100,7 @@ const SALARIES_HTML = `
     <label>Mode de paie <select id="n_mode"></select></label>
     <label>Groupe préavis <select id="n_groupe"></select></label>
     <label>Salaire de base (F/mois) <input id="n_salaire" type="number"></label>
+    <label>Salaire moyen des 12 derniers mois (F, facultatif) <input id="n_moyen" type="number"></label>
     <label>Transport (F/mois) <input id="n_transport" type="number" value="0"></label>
     <label>Personnes couvertes CMU <input id="n_cmu" type="number" value="0"></label>
     <label>Parts fiscales <input id="n_parts" type="number" step="0.5" value="1"></label>
@@ -113,6 +114,8 @@ const SALARIES_HTML = `
     <tr><td>Groupe préavis</td><td>« 1 à 5 » pour les catégories 1 à 5, « 6 et plus » pour les cadres.</td></tr>
     <tr><td>Parts fiscales</td><td>1 pour un célibataire, 2 pour un marié, +0,5 par enfant à charge (5 parts au maximum).</td></tr>
     <tr><td>Personnes couvertes CMU</td><td>Nombre de personnes couvertes. 1 000 F par personne et par mois, moitié salarié, moitié employeur.</td></tr>
+    <tr><td>Salaire moyen des 12 derniers mois</td><td>Moyenne mensuelle du salaire brut sur les 12 derniers mois. Sert au calcul des dommages-intérêts et de l'indemnité de licenciement. Si vide, le salaire de base est utilisé.</td></tr>
+    <tr><td>Indemnité de licenciement</td><td>30 % du salaire moyen par année jusqu'à la 5e, 35 % de la 6e à la 10e, 40 % au-delà (décret 2017-210). Due après 12 mois de service continu, sauf faute lourde.</td></tr>
     <tr><td>Transport</td><td>Indemnité de transport mensuelle, ajoutée au net et au coût employeur, hors ITS.</td></tr>
   </table>
 </section>`;
@@ -122,6 +125,11 @@ async function demarrer() {
   if (!data.session) { formulaireConnexion($("principal"), demarrer); return; }
   $("qui").textContent = data.session.user.email;
   $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+  const profil = await sb.from("profils").select("role,bloque").eq("id", data.session.user.id);
+  const role = profil.data && profil.data[0] ? profil.data[0].role : null;
+  if (!["chef_cabinet", "chef_comptable", "comptable"].includes(role) || (profil.data[0] && profil.data[0].bloque)) {
+    $("principal").innerHTML = '<div class="msg ko">La paie et les RH sont réservées aux comptables et aux chefs du cabinet.</div>'; return;
+  }
   $("principal").innerHTML = AIDE + `<section class="bloc"><h2>Catégories conventionnelles</h2><div id="cats"><p class="petit">Chargement…</p></div></section>` + FORM_CALCULS + SALARIES_HTML;
   remplirChoix();
   chargerCategories().then(chargerEntreprises);
@@ -232,6 +240,7 @@ async function enregistrerSalarie() {
     mode_paie: $("n_mode").value,
     groupe_preavis: $("n_groupe").value,
     salaire_base: num($("n_salaire").value),
+    salaire_moyen_12_mois: num($("n_moyen").value),
     transport: num($("n_transport").value) || 0,
     personnes_cmu: num($("n_cmu").value) || 0,
     parts: num($("n_parts").value) || 1,
@@ -254,10 +263,11 @@ async function chargerSalaries() {
   const aujourdui = aujourdhui();
   const annee = Number(aujourdui.slice(0, 4));
   const lignes = await Promise.all(data.map(async (s) => {
-    const [g, p, d, b] = await Promise.all([
+    const [g, p, d, ind, b] = await Promise.all([
       sb.rpc("gratification_salarie", { p_salarie: s.id, p_annee: annee }),
       sb.rpc("preavis_salarie", { p_salarie: s.id, p_date_rupture: aujourdui, p_incapacite: false }),
       sb.rpc("dommages_salarie", { p_salarie: s.id, p_date_rupture: aujourdui }),
+      sb.rpc("indemnite_licenciement_salarie", { p_salarie: s.id, p_date_rupture: aujourdui, p_faute_lourde: false }),
       sb.rpc("bulletin_paie", { p_brut: s.salaire_base, p_transport: s.transport, p_cmu_personnes: s.personnes_cmu, p_parts: s.parts }),
     ]);
     const cell = (r, f) => r.error ? `<span class="ko">${esc(r.error.message)}</span>` : f(r.data);
@@ -269,13 +279,14 @@ async function chargerSalaries() {
       <td>${cell(g, (v) => F(v) + " F")}</td>
       <td>${cell(p, (v) => { const r = v[0]; return r ? `${Number(r.duree)} ${r.unite === "jours" ? "jour(s)" : "mois"}` : ""; })}</td>
       <td>${cell(d, (v) => { const r = v[0]; return r ? `${F(r.montant)} F (${Number(r.mois_retenus)} mois)` : ""; })}</td>
+      <td>${cell(ind, (v) => { const r = v[0]; return r ? (r.eligible ? `${F(r.montant)} F (${r.anciennete_mois} mois)` : `Non due (ancienneté ${r.anciennete_mois} mois)`) : ""; })}</td>
       <td>${cell(b, (v) => { const r = v[0]; return r ? `Brut ${F(r.brut)}<br>CNPS salarié ${F(r.cnps_salarie)}<br>CMU salarié ${F(r.cmu_salarie)}<br>ITS net ${F(r.its_net)}<br><b>Net à payer ${F(r.net_a_payer)} F</b><br>Coût employeur ${F(r.cout_employeur)} F` : ""; })}</td>
     </tr>`;
   }));
   $("s_liste").innerHTML = `<table>
-    <tr><th>Salarié</th><th>Branche</th><th>Entrée</th><th>Salaire</th><th>Gratification ${annee}</th><th>Préavis (aujourd'hui)</th><th>Dommages si abusif (aujourd'hui)</th><th>Bulletin du mois</th></tr>
+    <tr><th>Salarié</th><th>Branche</th><th>Entrée</th><th>Salaire</th><th>Gratification ${annee}</th><th>Préavis (aujourd'hui)</th><th>Dommages si abusif (aujourd'hui)</th><th>Indemnité de licenciement (aujourd'hui)</th><th>Bulletin du mois</th></tr>
     ${lignes.join("")}</table>
-    <p class="petit">Dommages-intérêts calculés sur le salaire de base seul, faute d'historique de salaires dans l'outil.</p>`;
+    <p class="petit">Dommages-intérêts et indemnité calculés sur le salaire moyen des 12 derniers mois s'il est saisi, sinon sur le salaire de base.</p>`;
 }
 
 demarrer();
