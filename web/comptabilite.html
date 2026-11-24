@@ -19,7 +19,7 @@ injecterStyle();
 
 const ETAT = { ent: null, role: null, corr: null, onglet: "ops", journal: "VT", ops: [], types: [], plan: [], tiers: [], mods: [] };
 const ROLES_COMPTA = ["comptable", "chef_comptable", "chef_cabinet"];
-const JOURNAUX = { CA: "Caisse", BQ: "Banque", AC: "Achats", VT: "Ventes", OD: "Opérations diverses" };
+const JOURNAUX = { CA: "Caisse", BQ: "Banque", AC: "Achats", VT: "Ventes", OD: "Opérations diverses", PA: "Paie (alimenté par Paie et RH)" };
 
 async function demarrer() {
   const { data } = await sb.auth.getSession();
