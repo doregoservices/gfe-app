@@ -81,14 +81,50 @@ const FORM_CALCULS = `
   <div id="p_res"></div>
 </section>`;
 
+
+const SALARIES_HTML = `
+<section class="bloc">
+  <h2>4. Salariés, gratification, préavis et bulletins</h2>
+  <p class="petit">Choisissez une entreprise. Pour chaque salarié, l'outil calcule automatiquement la gratification de l'année, le préavis et les dommages-intérêts (à la date du jour), et le bulletin du mois.</p>
+  <div class="ligne"><label>Entreprise <select id="s_ent"></select></label></div>
+  <div id="s_liste"></div>
+</section>
+<section class="bloc">
+  <h2>Ajouter un salarié</h2>
+  <div class="ligne">
+    <label>Nom <input id="n_nom"></label>
+    <label>Fonction <input id="n_fonction"></label>
+    <label>Branche <select id="n_branche"></select></label>
+    <label>Catégorie <select id="n_cat"></select></label>
+    <label>Date d'entrée <input id="n_entree" type="date"></label>
+    <label>Mode de paie <select id="n_mode"></select></label>
+    <label>Groupe préavis <select id="n_groupe"></select></label>
+    <label>Salaire de base (F/mois) <input id="n_salaire" type="number"></label>
+    <label>Transport (F/mois) <input id="n_transport" type="number" value="0"></label>
+    <label>Personnes couvertes CMU <input id="n_cmu" type="number" value="0"></label>
+    <label>Parts fiscales <input id="n_parts" type="number" step="0.5" value="1"></label>
+    <button id="n_go">Enregistrer le salarié</button>
+  </div>
+  <div id="n_res"></div>
+  <table>
+    <tr><th>Champ</th><th>Ce qu'il faut saisir</th></tr>
+    <tr><td>Catégorie</td><td>Le niveau du salarié dans la grille de sa branche (voir le tableau des catégories). Elle fixe le minimum de la gratification.</td></tr>
+    <tr><td>Mode de paie</td><td>« À l'heure ou à la journée » ou « au mois » (change la durée du préavis).</td></tr>
+    <tr><td>Groupe préavis</td><td>« 1 à 5 » pour les catégories 1 à 5, « 6 et plus » pour les cadres.</td></tr>
+    <tr><td>Parts fiscales</td><td>1 pour un célibataire, 2 pour un marié, +0,5 par enfant à charge (5 parts au maximum).</td></tr>
+    <tr><td>Personnes couvertes CMU</td><td>Nombre de personnes couvertes. 1 000 F par personne et par mois, moitié salarié, moitié employeur.</td></tr>
+    <tr><td>Transport</td><td>Indemnité de transport mensuelle, ajoutée au net et au coût employeur, hors ITS.</td></tr>
+  </table>
+</section>`;
+
 async function demarrer() {
   const { data } = await sb.auth.getSession();
   if (!data.session) { formulaireConnexion($("principal"), demarrer); return; }
   $("qui").textContent = data.session.user.email;
   $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
-  $("principal").innerHTML = AIDE + `<section class="bloc"><h2>Catégories conventionnelles</h2><div id="cats"><p class="petit">Chargement…</p></div></section>` + FORM_CALCULS;
+  $("principal").innerHTML = AIDE + `<section class="bloc"><h2>Catégories conventionnelles</h2><div id="cats"><p class="petit">Chargement…</p></div></section>` + FORM_CALCULS + SALARIES_HTML;
   remplirChoix();
-  chargerCategories();
+  chargerCategories().then(chargerEntreprises);
   $("g_go").onclick = calculerGratification;
   $("a_go").onclick = calculerAbus;
   $("p_go").onclick = calculerPreavis;
@@ -160,6 +196,86 @@ async function calculerPreavis() {
   if (error) return afficher("p_res", error);
   const r = data[0];
   afficher("p_res", null, `<div class="msg ok"><b>Préavis : ${Number(r.duree)} ${r.unite === "jours" ? "jour(s)" : "mois"}</b></div>`);
+}
+
+function formatSal(v) { return v === null || v === undefined ? "" : F(v); }
+
+async function chargerEntreprises() {
+  const { data, error } = await sb.from("entreprises").select("id,nom").order("nom");
+  if (error) { $("s_liste").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
+  $("s_ent").innerHTML = data.map((e) => `<option value="${esc(e.id)}">${esc(e.nom)}</option>`).join("");
+  $("s_ent").onchange = chargerSalaries;
+  $("n_mode").innerHTML = Object.entries(MODE_PAIE).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
+  $("n_groupe").innerHTML = Object.entries(CATEGORIE_PREAVIS).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
+  const branches = [...new Set(ETAT.categories.map((c) => c.branche))];
+  $("n_branche").innerHTML = branches.map((b) => `<option value="${esc(b)}">${esc(nomBranche(b))}</option>`).join("");
+  $("n_branche").onchange = remplirCategoriesSalarie;
+  remplirCategoriesSalarie();
+  $("n_go").onclick = enregistrerSalarie;
+  chargerSalaries();
+}
+
+function remplirCategoriesSalarie() {
+  const b = $("n_branche").value;
+  $("n_cat").innerHTML = ETAT.categories.filter((c) => c.branche === b)
+    .map((c) => `<option value="${esc(c.categorie)}">${esc(c.categorie)} : ${esc(c.libelle)}</option>`).join("");
+}
+
+async function enregistrerSalarie() {
+  const ligne = {
+    entreprise_id: $("s_ent").value,
+    nom: txt($("n_nom").value),
+    fonction: txt($("n_fonction").value),
+    branche: $("n_branche").value,
+    categorie: $("n_cat").value,
+    date_entree: txt($("n_entree").value),
+    mode_paie: $("n_mode").value,
+    groupe_preavis: $("n_groupe").value,
+    salaire_base: num($("n_salaire").value),
+    transport: num($("n_transport").value) || 0,
+    personnes_cmu: num($("n_cmu").value) || 0,
+    parts: num($("n_parts").value) || 1,
+  };
+  if (!ligne.nom || !ligne.date_entree || ligne.salaire_base === null) {
+    $("n_res").innerHTML = '<div class="msg ko">Nom, date d\'entrée et salaire de base sont obligatoires.</div>'; return;
+  }
+  const { error } = await sb.from("salaries").insert(ligne);
+  if (error) { $("n_res").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
+  $("n_res").innerHTML = '<div class="msg ok">Salarié enregistré.</div>';
+  chargerSalaries();
+}
+
+async function chargerSalaries() {
+  const eid = $("s_ent").value;
+  if (!eid) { $("s_liste").innerHTML = '<p class="petit">Aucune entreprise.</p>'; return; }
+  const { data, error } = await sb.from("salaries").select("*").eq("entreprise_id", eid).order("nom");
+  if (error) { $("s_liste").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
+  if (!data.length) { $("s_liste").innerHTML = '<p class="petit">Aucun salarié pour cette entreprise.</p>'; return; }
+  const aujourdui = aujourdhui();
+  const annee = Number(aujourdui.slice(0, 4));
+  const lignes = await Promise.all(data.map(async (s) => {
+    const [g, p, d, b] = await Promise.all([
+      sb.rpc("gratification_salarie", { p_salarie: s.id, p_annee: annee }),
+      sb.rpc("preavis_salarie", { p_salarie: s.id, p_date_rupture: aujourdui, p_incapacite: false }),
+      sb.rpc("dommages_salarie", { p_salarie: s.id, p_date_rupture: aujourdui }),
+      sb.rpc("bulletin_paie", { p_brut: s.salaire_base, p_transport: s.transport, p_cmu_personnes: s.personnes_cmu, p_parts: s.parts }),
+    ]);
+    const cell = (r, f) => r.error ? `<span class="ko">${esc(r.error.message)}</span>` : f(r.data);
+    return `<tr>
+      <td>${esc(s.nom)}<br><span class="petit">${esc(s.fonction || "")}</span></td>
+      <td>${esc(nomBranche(s.branche))}<br>Catégorie ${esc(s.categorie)}</td>
+      <td>${esc(s.date_entree)}</td>
+      <td>${F(s.salaire_base)} F${s.transport ? " + transport " + F(s.transport) : ""}</td>
+      <td>${cell(g, (v) => F(v) + " F")}</td>
+      <td>${cell(p, (v) => { const r = v[0]; return r ? `${Number(r.duree)} ${r.unite === "jours" ? "jour(s)" : "mois"}` : ""; })}</td>
+      <td>${cell(d, (v) => { const r = v[0]; return r ? `${F(r.montant)} F (${Number(r.mois_retenus)} mois)` : ""; })}</td>
+      <td>${cell(b, (v) => { const r = v[0]; return r ? `Brut ${F(r.brut)}<br>CNPS salarié ${F(r.cnps_salarie)}<br>CMU salarié ${F(r.cmu_salarie)}<br>ITS net ${F(r.its_net)}<br><b>Net à payer ${F(r.net_a_payer)} F</b><br>Coût employeur ${F(r.cout_employeur)} F` : ""; })}</td>
+    </tr>`;
+  }));
+  $("s_liste").innerHTML = `<table>
+    <tr><th>Salarié</th><th>Branche</th><th>Entrée</th><th>Salaire</th><th>Gratification ${annee}</th><th>Préavis (aujourd'hui)</th><th>Dommages si abusif (aujourd'hui)</th><th>Bulletin du mois</th></tr>
+    ${lignes.join("")}</table>
+    <p class="petit">Dommages-intérêts calculés sur le salaire de base seul, faute d'historique de salaires dans l'outil.</p>`;
 }
 
 demarrer();

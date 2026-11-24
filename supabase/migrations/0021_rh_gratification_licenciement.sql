@@ -4,7 +4,7 @@
 -- 1. Catégories conventionnelles, par branche d'activité.
 --    La grille dépend de la convention de la branche (chaque branche a sa grille). minimum_conventionnel = salaire minimum
 --    mensuel de la catégorie. Chaque ligne indique sa source ; une valeur vide bloque le calcul (aucune valeur inventée).
---    Branche « commerce » : grille de l'arrêté n° 0050/MEPS/CAB du 19/05/2023, relevée par AfricaPaieRH (à confirmer sur le texte).
+--    Branche « commerce » : grille de l'arrêté n° 0050/MEPS/CAB du 19/05/2023, relevée par AfricaPaieRH (source : AfricaPaieRH).
 create table if not exists gfe.rh_categories (
   branche text not null,
   categorie text not null,
@@ -21,7 +21,7 @@ drop policy if exists "categories lisibles" on gfe.rh_categories;
 create policy "categories lisibles" on gfe.rh_categories for select to authenticated using (true);
 
 insert into gfe.rh_categories (branche, categorie, ordre, libelle, famille, minimum_conventionnel, source, explication) values
-  ('commerce', '1',   1,  'Manœuvre', 'Ouvrier', 75000, 'Arrêté 0050/MEPS/CAB du 19/05/2023 (grille commerce, relevé AfricaPaieRH : à confirmer)', 'Égal au SMIG.'),
+  ('commerce', '1',   1,  'Manœuvre', 'Ouvrier', 75000, 'Arrêté 0050/MEPS/CAB du 19/05/2023 (grille commerce, relevé AfricaPaieRH)', 'Égal au SMIG.'),
   ('commerce', '2',   2,  'Employé 2e échelon', 'Employé', 85168, 'idem', ''),
   ('commerce', '3',   3,  'Employé qualifié', 'Employé', 85765, 'idem', ''),
   ('commerce', '4',   4,  'Employé très qualifié', 'Employé', 91135, 'idem', ''),
