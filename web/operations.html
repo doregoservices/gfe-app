@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFE — Opérations (saisie client)</title>
+</head>
+<body>
+<header class="bandeau">
+  <img src="charte/logo_banniere.png" alt="GFE" onerror="this.style.display='none'">
+  <div class="titre" id="titre">OPÉRATIONS</div>
+  <div class="droite"><span id="qui"></span><a class="bouton" id="retour" href="saisie.html" style="display:none">← Retour SAISIE</a><button id="deco">Déconnexion</button></div>
+</header>
+<main id="principal"><p class="petit">Chargement…</p></main>
+<script type="module">
+import * as C from "./assets/stock-core.js";
+const { sb, $, esc, F, rpc, lireTout, aujourdhui, injecterStyle, formulaireConnexion } = C;
+injecterStyle();
+
+const ETAT = { ent: null, types: [], plan: [], tiers: [], ops: [] };
+
+// Ce qui est demandé à la saisie, selon le type (règles du modèle, colonnes AL à AN)
+function regles(code) {
+  const t = ETAT.types.find((x) => x.code === code);
+  return t || null;
+}
+
+async function demarrer() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) { formulaireConnexion($("principal"), demarrer); return; }
+  $("qui").textContent = data.session.user.email;
+  $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+  const ents = await lireTout("entreprises", { ordre: "nom" });
+  if (!ents.length) { $("principal").innerHTML = "<p>Aucune entreprise rattachée à ce compte.</p>"; return; }
+  const eid = new URLSearchParams(location.search).get("e");
+  if (!eid && ents.length > 1) {
+    $("principal").innerHTML = "<h2>Choisir l'entreprise</h2>" + ents.map((e) => `<p><a href="?e=${e.id}">${esc(e.nom)}</a></p>`).join("");
+    return;
+  }
+  ETAT.ent = eid ? ents.find((e) => e.id === eid) : ents[0];
+  if (!ETAT.ent) { $("principal").innerHTML = "<p>Accès refusé à cette entreprise.</p>"; return; }
+  // Le comptable qui ouvre ce module depuis la comptabilité voit un bouton de retour
+  const profil = await lireTout("profils", { filtre: (q) => q.eq("id", data.session.user.id) });
+  if (profil[0] && profil[0].role !== "entreprise") { $("retour").href = "comptabilite.html?e=" + ETAT.ent.id; $("retour").textContent = "← Comptabilité"; $("retour").style.display = "inline-block"; }
+  const mod = await lireTout("modules_actifs", { filtre: (q) => q.eq("entreprise_id", ETAT.ent.id).eq("module", "comptabilite") });
+  if (!mod.length || !mod[0].actif) {
+    $("principal").innerHTML = `<div class="msg ko">Le module Comptabilité n'est pas activé pour ${esc(ETAT.ent.nom)}. Adressez-vous au cabinet GFE.</div>`;
+    return;
+  }
+  $("titre").textContent = "OPÉRATIONS — " + ETAT.ent.nom;
+  await charger();
+}
+
+async function charger() {
+  const eid = ETAT.ent.id;
+  [ETAT.types, ETAT.plan, ETAT.tiers, ETAT.ops] = await Promise.all([
+    lireTout("types_operation", { ordre: "code" }),
+    lireTout("plan_comptes", { filtre: (q) => q.eq("entreprise_id", eid), ordre: "numero_interne" }),
+    lireTout("tiers", { filtre: (q) => q.eq("entreprise_id", eid), ordre: "nom" }),
+    lireTout("operations", { filtre: (q) => q.eq("entreprise_id", eid), ordre: "date_operation" }),
+  ]);
+  dessiner();
+}
+
+function champs() {
+  const opts = ETAT.types.map((t) => `<option value="${esc(t.code)}">${esc(t.libelle)}</option>`).join("");
+  const plan = ETAT.plan.filter((p) => /^[4-7]/.test(p.numero_affiche) || /^[1-8]/.test(p.numero_affiche))
+    .map((p) => `<option value="${esc(p.numero_interne)}">${esc(p.numero_affiche)} – ${esc(p.libelle)}</option>`).join("");
+  const tiers = ETAT.tiers.map((t) => `<option value="${esc(t.id)}">${esc(t.nom)} (${esc(t.type)})</option>`).join("");
+  return { opts, plan, tiers };
+}
+
+function dessiner() {
+  const { opts, plan, tiers } = champs();
+  const lignes = ETAT.ops.slice().reverse().map((o) => {
+    const t = ETAT.types.find((x) => x.code === o.type_code);
+    const nomTiers = ETAT.tiers.find((x) => x.id === o.tiers_id);
+    return `<tr><td>${esc(o.date_operation)}</td><td>${esc(t ? t.libelle : o.type_code)}</td><td>${esc(o.mode || "")}</td><td>${esc(o.libelle)}</td><td>${esc(nomTiers ? nomTiers.nom : "")}</td><td style="text-align:right">${F(o.montant)}</td><td>${esc(o.piece || "")}</td></tr>`;
+  }).join("");
+  $("principal").innerHTML = `
+    <section class="bloc">
+      <h2>Nouvelle opération</h2>
+      <form id="formOp" class="grille">
+        <label>Date<input type="date" id="dte" value="${aujourdhui()}" required></label>
+        <label>Type d'opération<select id="typ" required><option value="">— choisir —</option>${opts}</select></label>
+        <label id="lblMode">Mode<select id="mode"><option value="">—</option><option>Espèces</option><option>Banque</option></select></label>
+        <label id="lblCat">Catégorie (plan de comptes)<select id="cat"><option value="">—</option>${plan}</select></label>
+        <label id="lblTiers">Tiers<select id="tiers"><option value="">—</option>${tiers}</select></label>
+        <label>Montant (F)<input type="number" id="mnt" min="1" step="1" required></label>
+        <label>N° de pièce<input type="text" id="pce"></label>
+        <label style="grid-column:1/-1">Libellé<input type="text" id="lib" required></label>
+        <div style="grid-column:1/-1"><button type="submit" id="bouton">Enregistrer l'opération</button></div>
+        <div id="msg" style="grid-column:1/-1"></div>
+      </form>
+      <p class="petit" id="aide"></p>
+    </section>
+    <section class="bloc">
+      <h2>Opérations enregistrées</h2>
+      <table><thead><tr><th>Date</th><th>Type</th><th>Mode</th><th>Libellé</th><th>Tiers</th><th>Montant</th><th>Pièce</th></tr></thead>
+      <tbody>${lignes || '<tr><td colspan="7">Aucune opération.</td></tr>'}</tbody></table>
+    </section>`;
+  $("typ").onchange = majChamps;
+  $("formOp").onsubmit = enregistrer;
+  majChamps();
+}
+
+function majChamps() {
+  const t = regles($("typ").value);
+  const aff = (id, visible) => { $(id).style.display = visible ? "" : "none"; };
+  if (!t) { aff("lblMode", true); aff("lblCat", true); aff("lblTiers", true); $("aide").textContent = ""; return; }
+  aff("lblMode", t.mode_requis !== 0);
+  $("mode").required = t.mode_requis === 1;
+  aff("lblCat", t.categorie_requise !== 0);
+  $("cat").required = t.categorie_requise === 1;
+  aff("lblTiers", t.tiers !== 0);
+  $("tiers").required = t.tiers === 1;
+  const reqs = [];
+  if (t.mode_requis === 1) reqs.push("mode obligatoire");
+  if (t.categorie_requise === 1) reqs.push("catégorie obligatoire");
+  if (t.tiers === 1) reqs.push("tiers obligatoire");
+  $("aide").textContent = reqs.length ? "Ce type : " + reqs.join(", ") + "." : "";
+}
+
+async function enregistrer(ev) {
+  ev.preventDefault();
+  $("msg").innerHTML = "";
+  const t = regles($("typ").value);
+  if (!t) { $("msg").innerHTML = '<div class="msg ko">Choisissez un type d\'opération.</div>'; return; }
+  const ligne = {
+    entreprise_id: ETAT.ent.id,
+    date_operation: $("dte").value,
+    type_code: t.code,
+    mode: t.mode_requis === 0 ? null : ($("mode").value || null),
+    libelle: $("lib").value.trim(),
+    categorie: t.categorie_requise === 0 ? null : ($("cat").value || null),
+    tiers_id: t.tiers === 0 ? null : ($("tiers").value || null),
+    montant: Number($("mnt").value),
+    piece: $("pce").value.trim() || null,
+  };
+  $("bouton").disabled = true;
+  const { error } = await sb.from("operations").insert(ligne);
+  $("bouton").disabled = false;
+  if (error) { $("msg").innerHTML = `<div class="msg ko">Opération refusée : ${esc(error.message)}</div>`; return; }
+  await charger();
+  $("msg").innerHTML = '<div class="msg ok">Opération enregistrée.</div>';
+}
+
+demarrer();
+</script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFE — Comptabilité (interface comptable)</title>
+</head>
+<body>
+<header class="bandeau">
+  <img src="charte/logo_banniere.png" alt="GFE" onerror="this.style.display='none'">
+  <div class="titre" id="titre">COMPTABILITÉ</div>
+  <div class="droite"><span id="qui"></span><select id="choixEnt" style="display:none"></select><a class="bouton" href="gestion.html">← GESTION</a><button id="deco">Déconnexion</button></div>
+</header>
+<main id="principal"><p class="petit">Chargement…</p></main>
+<script type="module">
+import * as C from "./assets/stock-core.js";
+const { sb, $, esc, F, rpc, lireTout, injecterStyle, formulaireConnexion } = C;
+injecterStyle();
+
+const ETAT = { ent: null, role: null, onglet: "ops", journal: "VT", ops: [], types: [], plan: [], tiers: [], mods: [] };
+const ROLES_COMPTA = ["comptable", "chef_comptable", "chef_cabinet"];
+const JOURNAUX = { CA: "Caisse", BQ: "Banque", AC: "Achats", VT: "Ventes", OD: "Opérations diverses" };
+
+async function demarrer() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) { formulaireConnexion($("principal"), demarrer); return; }
+  $("qui").textContent = data.session.user.email;
+  $("deco").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+  const profil = await lireTout("profils", { filtre: (q) => q.eq("id", data.session.user.id) });
+  ETAT.role = profil[0] ? profil[0].role : null;
+  if (!ROLES_COMPTA.includes(ETAT.role) || (profil[0] && profil[0].bloque)) {
+    $("principal").innerHTML = `<div class="msg ko">Cette interface est réservée au cabinet GFE.</div>`; return;
+  }
+  const ents = await lireTout("entreprises", { ordre: "nom" });
+  const sel = $("choixEnt"); sel.style.display = "inline-block";
+  sel.innerHTML = ents.map((e) => `<option value="${esc(e.id)}">${esc(e.nom)}</option>`).join("");
+  const demande = new URLSearchParams(location.search).get("e");
+  ETAT.ent = ents.find((e) => e.id === demande) || ents[0];
+  if (!ETAT.ent) { $("principal").innerHTML = "<p>Aucune entreprise.</p>"; return; }
+  sel.value = ETAT.ent.id;
+  sel.onchange = () => { location.search = "?e=" + sel.value; };
+  await charger();
+}
+
+async function charger() {
+  const eid = ETAT.ent.id;
+  $("titre").textContent = "COMPTABILITÉ — " + ETAT.ent.nom;
+  [ETAT.types, ETAT.plan, ETAT.tiers, ETAT.ops, ETAT.mods] = await Promise.all([
+    lireTout("types_operation", { ordre: "code" }),
+    lireTout("plan_comptes", { filtre: (q) => q.eq("entreprise_id", eid), ordre: "numero_interne" }),
+    lireTout("tiers", { filtre: (q) => q.eq("entreprise_id", eid), ordre: "nom" }),
+    lireTout("operations", { filtre: (q) => q.eq("entreprise_id", eid), ordre: "date_operation" }),
+    lireTout("modules_actifs", { filtre: (q) => q.eq("entreprise_id", eid) }),
+  ]);
+  dessiner();
+}
+
+function onglets() {
+  const liste = [["ops", "Opérations"], ["jrn", "Journaux"], ["bal", "Balance"], ["tiers", "Tiers"], ["plan", "Plan et modules"]];
+  return `<nav class="onglets">${liste.map(([k, l]) => `<button data-o="${k}" class="${ETAT.onglet === k ? "actif" : ""}">${l}</button>`).join("")}</nav>`;
+}
+
+function dessiner() {
+  const corps = { ops: vueOps, jrn: vueJournaux, bal: vueBalance, tiers: vueTiers, plan: vuePlan }[ETAT.onglet]();
+  $("principal").innerHTML = onglets() + `<section class="bloc">${corps}</section>`;
+  document.querySelectorAll("nav.onglets button").forEach((b) => b.onclick = () => { ETAT.onglet = b.dataset.o; dessiner(); });
+  const j = $("choixJournal"); if (j) j.onchange = async () => { ETAT.journal = j.value; await dessinerJournal(); };
+  const f = $("formTiers"); if (f) f.onsubmit = ajouterTiers;
+  const pi = $("initPlan"); if (pi) pi.onclick = initialiserPlan;
+  document.querySelectorAll("[data-mod]").forEach((b) => b.onclick = () => basculerModule(b.dataset.mod, b.dataset.actif === "true"));
+  if (ETAT.onglet === "jrn") dessinerJournal();
+  if (ETAT.onglet === "bal") dessinerBalance();
+}
+
+function vueOps() {
+  const types = Object.fromEntries(ETAT.types.map((t) => [t.code, t.libelle]));
+  const nomTiers = Object.fromEntries(ETAT.tiers.map((t) => [t.id, t.nom]));
+  const lignes = ETAT.ops.slice().reverse().map((o) => `<tr><td>${esc(o.date_operation)}</td><td>${esc(types[o.type_code] || o.type_code)}</td><td>${esc(o.mode || "")}</td><td>${esc(o.libelle)}</td><td>${esc(nomTiers[o.tiers_id] || "")}</td><td style="text-align:right">${F(o.montant)}</td><td>${esc(o.piece || "")}</td></tr>`).join("");
+  return `<h2>Opérations saisies (${ETAT.ops.length})</h2>
+    <p class="petit">Chaque opération est répartie automatiquement dans les journaux (onglets Journaux et Balance).</p>
+    <table><thead><tr><th>Date</th><th>Type</th><th>Mode</th><th>Libellé</th><th>Tiers</th><th>Montant</th><th>Pièce</th></tr></thead>
+    <tbody>${lignes || '<tr><td colspan="7">Aucune opération.</td></tr>'}</tbody></table>`;
+}
+
+function vueJournaux() {
+  const opts = Object.entries(JOURNAUX).map(([k, v]) => `<option value="${k}" ${ETAT.journal === k ? "selected" : ""}>${k} – ${esc(v)}</option>`).join("");
+  return `<h2>Journaux</h2>
+    <label>Journal <select id="choixJournal">${opts}</select></label>
+    <div id="contenuJournal"><p class="petit">Chargement…</p></div>`;
+}
+
+async function dessinerJournal() {
+  const lignes = await lireTout("v_journaux", { filtre: (q) => q.eq("entreprise_id", ETAT.ent.id).eq("journal", ETAT.journal), ordre: "rang" });
+  const td = lignes.reduce((s, l) => s + Number(l.debit), 0), tc = lignes.reduce((s, l) => s + Number(l.credit), 0);
+  const corps = lignes.map((l) => `<tr><td>${esc(l.rang)}</td><td>${esc(l.date_operation)}</td><td>${esc(l.piece)}</td><td>${esc(l.libelle)}</td><td>${esc(l.compte)}</td><td>${esc(l.compte_tiers || "")}</td><td>${esc(l.tiers || "")}</td><td style="text-align:right">${F(l.debit)}</td><td style="text-align:right">${F(l.credit)}</td></tr>`).join("");
+  $("contenuJournal").innerHTML = `<p><b>Totaux</b> : débit ${F(td)} · crédit ${F(tc)} · ${td === tc ? '<span class="ok">journal équilibré</span>' : '<span class="ko">DÉSÉQUILIBRÉ</span>'}</p>
+    <table><thead><tr><th>Rang</th><th>Date</th><th>Pièce</th><th>Libellé</th><th>Compte</th><th>Compte de tiers</th><th>Tiers</th><th>Débit</th><th>Crédit</th></tr></thead>
+    <tbody>${corps || '<tr><td colspan="9">Aucune écriture dans ce journal.</td></tr>'}</tbody></table>`;
+}
+
+async function dessinerBalance() {
+  const lignes = await lireTout("v_balance", { filtre: (q) => q.eq("entreprise_id", ETAT.ent.id), ordre: "numero_interne" });
+  const mvt = lignes.filter((l) => Number(l.mouvements_d) || Number(l.mouvements_c) || Number(l.ouverture_d) || Number(l.ouverture_c));
+  const somme = (k) => lignes.reduce((s, l) => s + Number(l[k]), 0);
+  const eq = somme("mouvements_d") === somme("mouvements_c") && somme("solde_final_d") === somme("solde_final_c");
+  $("contenuBalance").innerHTML = `<p><b>Totaux</b> : mouvements débit ${F(somme("mouvements_d"))} · crédit ${F(somme("mouvements_c"))} · ${eq ? '<span class="ok">balance équilibrée</span>' : '<span class="ko">BALANCE DÉSÉQUILIBRÉE</span>'}</p>
+    <table><thead><tr><th>Compte</th><th>Libellé</th><th>Ouverture D</th><th>Ouverture C</th><th>Mouvements D</th><th>Mouvements C</th><th>Solde D</th><th>Solde C</th></tr></thead>
+    <tbody>${mvt.map((l) => `<tr><td>${esc(l.compte)}</td><td>${esc(l.libelle)}</td><td style="text-align:right">${F(l.ouverture_d)}</td><td style="text-align:right">${F(l.ouverture_c)}</td><td style="text-align:right">${F(l.mouvements_d)}</td><td style="text-align:right">${F(l.mouvements_c)}</td><td style="text-align:right">${F(l.solde_final_d)}</td><td style="text-align:right">${F(l.solde_final_c)}</td></tr>`).join("") || '<tr><td colspan="8">Aucun mouvement.</td></tr>'}</tbody></table>
+    <p class="petit">Seuls les comptes avec mouvement ou solde d'ouverture sont affichés.</p>`;
+}
+
+function vueBalance() {
+  return `<h2>Balance générale</h2><div id="contenuBalance"><p class="petit">Chargement…</p></div>`;
+}
+
+function vueTiers() {
+  const nomTypes = ETAT.tiers.map((t) => `<tr><td>${esc(t.code)}</td><td>${esc(t.nom)}</td><td>${esc(t.type)}</td><td>${esc(t.compte_tiers || "")}</td><td>${esc(t.compte_general || "")}</td></tr>`).join("");
+  const comptesTiers = ETAT.plan.filter((p) => /^4[01]/.test(p.numero_affiche))
+    .map((p) => `<option value="${esc(p.numero_interne)}">${esc(p.numero_affiche)} – ${esc(p.libelle)}</option>`).join("");
+  return `<h2>Clients et fournisseurs (tiers)</h2>
+    <form id="formTiers" class="grille">
+      <label>Code<input id="tcode" required></label>
+      <label>Nom<input id="tnom" required></label>
+      <label>Type<select id="ttype"><option>Client</option><option>Fournisseur</option><option>Autre</option></select></label>
+      <label>Compte de tiers (sous-compte)<input id="tct" placeholder="ex. 411ABC" required></label>
+      <label>Compte général<select id="tcg" required><option value="">—</option>${comptesTiers}</select></label>
+      <div><button type="submit">Ajouter le tiers</button></div>
+      <div id="msgTiers" style="grid-column:1/-1"></div>
+    </form>
+    <table><thead><tr><th>Code</th><th>Nom</th><th>Type</th><th>Compte de tiers</th><th>Compte général</th></tr></thead><tbody>${nomTypes || '<tr><td colspan="5">Aucun tiers.</td></tr>'}</tbody></table>`;
+}
+
+async function ajouterTiers(ev) {
+  ev.preventDefault();
+  const ligne = { entreprise_id: ETAT.ent.id, code: $("tcode").value.trim(), nom: $("tnom").value.trim(), type: $("ttype").value, compte_tiers: $("tct").value.trim(), compte_general: $("tcg").selectedOptions[0] ? $("tcg").selectedOptions[0].textContent.split(" – ")[0] : "" };
+  const { error } = await sb.from("tiers").insert(ligne);
+  if (error) { $("msgTiers").innerHTML = `<div class="msg ko">${esc(error.message)}</div>`; return; }
+  await charger(); ETAT.onglet = "tiers"; dessiner();
+}
+
+function vuePlan() {
+  const vide = ETAT.plan.length === 0;
+  const modeles = ["comptabilite"];
+  const mod = (m) => ETAT.mods.find((x) => x.module === m);
+  const estChef = ETAT.role === "chef_comptable" || ETAT.role === "chef_cabinet";
+  const etatComptabilite = mod("comptabilite") && mod("comptabilite").actif;
+  return `<h2>Plan de comptes et modules</h2>
+    <p>Plan de comptes : ${ETAT.plan.length} comptes.
+      ${vide ? '<button id="initPlan">Charger le plan du cabinet</button>' : ""}</p>
+    <h3>Module Comptabilité</h3>
+    <p>${etatComptabilite ? '<span class="ok">Activé</span>' : '<span class="ko">Désactivé</span>'} pour ${esc(ETAT.ent.nom)}.</p>
+    ${estChef ? `<button data-mod="comptabilite" data-actif="${etatComptabilite ? "false" : "true"}">${etatComptabilite ? "Désactiver" : "Activer"} le module Comptabilité</button>` : '<p class="petit">Seul un chef peut activer ou désactiver un module.</p>'}`;
+}
+
+async function initialiserPlan() {
+  const { error } = await sb.rpc("initialiser_plan", { p_entreprise: ETAT.ent.id });
+  if (error) { alert(error.message); return; }
+  await charger(); ETAT.onglet = "plan"; dessiner();
+}
+
+async function basculerModule(module, actif) {
+  const { error } = await sb.rpc("activer_module", { p_entreprise: ETAT.ent.id, p_module: module, p_actif: actif });
+  if (error) { alert(error.message); return; }
+  await charger(); ETAT.onglet = "plan"; dessiner();
+}
+
+demarrer();
+</script>
+</body>
+</html>
